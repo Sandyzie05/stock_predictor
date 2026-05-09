@@ -1,0 +1,139 @@
+# Cursor Rules for Stock Predictor Service
+# FastAPI + Python + Async Development Standards
+
+## Core Tech Stack
+- **Backend**: FastAPI (async/await)
+- **Database**: PostgreSQL + SQLAlchemy 2.0 (async)
+- **Cache**: Redis
+- **Testing**: pytest + pytest-asyncio
+- **Data**: Pydantic v2, numpy, pandas
+- **HTTP**: aiohttp for external APIs
+
+## Development Standards
+
+### Python Code Standards
+- Use Python 3.12+ features
+- Type hints mandatory for all functions
+- Use `async def` for I/O operations, `def` for pure functions
+- Prefer dataclasses over regular classes for data containers
+- Use context managers for resource management
+- Follow PEP 8 with 88-character line limit
+
+### FastAPI Patterns
+- Use dependency injection for shared resources
+- Async route handlers for I/O operations
+- Pydantic models for request/response validation
+- HTTPException for expected errors
+- Background tasks for long-running operations
+- Lifespan events instead of startup/shutdown decorators
+
+### Service Architecture
+- Services as async context managers
+- Service composition over inheritance  
+- Graceful error handling - never crash, return None/empty
+- Single responsibility per service
+- Dependency injection between services
+
+### Error Handling
+```python
+try:
+    result = await external_operation()
+    return process_result(result)
+except SpecificException as e:
+    print(f"Specific error in {method_name}: {e}")
+    return None
+except Exception as e:
+    print(f"Unexpected error in {method_name}: {e}")
+    return None
+```
+
+### Testing Standards  
+- 90%+ test coverage required
+- Mock all external dependencies (APIs, databases)
+- Test async patterns with pytest-asyncio
+- Test error scenarios and edge cases
+- Use fixtures for common test data
+
+### File Organization
+```
+app/
+├── core/           # Config, database, shared utilities
+├── models/         # SQLAlchemy ORM models
+├── schemas/        # Pydantic models
+├── services/       # Business logic services
+├── api/            # FastAPI routes
+└── main.py         # App initialization
+
+tests/
+├── test_core/
+├── test_models/
+├── test_schemas/  
+├── test_services/
+└── conftest.py     # Shared fixtures
+```
+
+### Database Patterns
+- Async SQLAlchemy sessions
+- Separate read/write models if needed
+- Use database migrations
+- Connection pooling for production
+
+### API Design
+- RESTful endpoints
+- Consistent error responses
+- API versioning (/api/v1/)
+- Request/response logging
+- Rate limiting for production
+
+### Performance Rules
+- Use async for all I/O operations
+- Implement caching for frequently accessed data
+- Use connection pooling
+- Lazy loading for large datasets
+- Background tasks for heavy operations
+
+### Code Quality
+- Import organization: stdlib, third-party, local
+- No unused imports or variables
+- Descriptive variable names
+- Clear docstrings for classes and functions
+- Update version history for all changes
+
+### Security
+- Environment variables for secrets
+- Input validation with Pydantic
+- Sanitize database queries
+- CORS configuration
+- API authentication/authorization
+
+## Anti-Patterns to Avoid
+- ❌ Blocking I/O operations
+- ❌ Missing error handling
+- ❌ Hardcoded configuration
+- ❌ Resource leaks (unclosed connections)
+- ❌ Missing type hints
+- ❌ Synchronous database operations
+- ❌ Missing tests for new features
+
+## Development Workflow
+1. Write failing test first (TDD)
+2. Implement minimal code to pass test
+3. Refactor while keeping tests green
+4. Run full test suite before commit
+5. Update version history for changes
+6. Check make commands pass
+
+## External API Integration
+- Always use async HTTP clients (aiohttp)
+- Implement retry logic with exponential backoff
+- Cache responses when appropriate
+- Handle rate limiting gracefully
+- Mock in tests, never call real APIs
+
+## Success Criteria
+- ✅ All make commands pass
+- ✅ 100% test coverage on new features
+- ✅ No linting errors
+- ✅ All services use async context managers
+- ✅ Proper error handling throughout
+- ✅ Version history updated for changes
