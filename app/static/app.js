@@ -4,18 +4,39 @@ let currentList = 'all-time-high';
 const appState = {
     market: null,
     report: null,
+    currentPage: 'recommendations',
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    initializeTabs();
+    initializePageTabs();
+    initializeListTabs();
     refreshWorkspace();
 });
 
-function initializeTabs() {
-    const tabs = document.querySelectorAll('#listTabs .tab');
+function initializePageTabs() {
+    const tabs = document.querySelectorAll('.page-tab');
     tabs.forEach((tab) => {
         tab.addEventListener('click', () => {
-            tabs.forEach((item) => item.classList.remove('active'));
+            const page = tab.getAttribute('data-page');
+            switchPage(page);
+        });
+    });
+}
+
+function switchPage(page) {
+    appState.currentPage = page;
+    document.querySelectorAll('.page-tab').forEach((tab) => {
+        tab.classList.toggle('active', tab.getAttribute('data-page') === page);
+    });
+    document.querySelectorAll('.page').forEach((section) => {
+        section.classList.toggle('active', section.id === `page-${page}`);
+    });
+}
+
+function initializeListTabs() {
+    document.querySelectorAll('#listTabs .tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('#listTabs .tab').forEach((item) => item.classList.remove('active'));
             tab.classList.add('active');
             currentList = tab.getAttribute('data-list');
             loadStockList(currentList);
@@ -37,14 +58,10 @@ async function refreshWorkspace() {
 
 function setRefreshState(isLoading) {
     const button = document.getElementById('refreshWorkspaceButton');
-    if (!button) {
-        return;
-    }
-
     button.disabled = isLoading;
     button.innerHTML = isLoading
         ? '<i class="fa-solid fa-arrows-rotate fa-spin"></i> Refreshing'
-        : '<i class="fa-solid fa-rotate-right"></i> Refresh workspace';
+        : '<i class="fa-solid fa-rotate-right"></i> Refresh';
 }
 
 function handleSearchKeypress(event) {
@@ -59,77 +76,12 @@ function handleNewsSearchKeypress(event) {
     }
 }
 
-async function searchStock() {
-    const input = document.getElementById('stockSearch');
-    const symbol = input.value.trim().toUpperCase();
-    if (!symbol) {
-        setAnalysisMessage('Enter a stock symbol to inspect the latest quote and recommendation.', true);
-        return;
-    }
-
-    document.getElementById('stockAnalysis').style.display = 'block';
-    document.getElementById('analysisSymbol').textContent = symbol;
-    document.getElementById('currentPrice').textContent = '--';
-    document.getElementById('recommendation').textContent = '--';
-    document.getElementById('confidence').textContent = '--';
-    document.getElementById('targetPrice').textContent = '--';
-    setAnalysisMessage('Loading live quote and recommendation...', true);
-
-    try {
-        const [quoteResponse, recommendationResponse] = await Promise.all([
-            fetch(`${API_BASE}/api/v1/stocks/${symbol}/quote`),
-            fetch(`${API_BASE}/api/v1/stocks/${symbol}/recommendation`),
-        ]);
-
-        if (!quoteResponse.ok || !recommendationResponse.ok) {
-            throw new Error('Quote or recommendation endpoint is currently unavailable for that symbol.');
-        }
-
-        const quote = await quoteResponse.json();
-        const recommendation = await recommendationResponse.json();
-        updateStockAnalysis(quote, recommendation);
-    } catch (error) {
-        setAnalysisMessage(`Unable to load ${symbol}. ${error.message}`, false);
-    }
-}
-
-function updateStockAnalysis(quote, recommendation) {
-    const priceText = quote.price != null ? `$${Number(quote.price).toFixed(2)}` : 'N/A';
-    const recommendationText = (recommendation.recommendation || 'hold').toUpperCase();
-    const confidence = recommendation.confidence != null
-        ? `${Math.round(Number(recommendation.confidence) * 100)}%`
-        : 'N/A';
-    const targetPrice = recommendation.target_price != null
-        ? `$${Number(recommendation.target_price).toFixed(2)}`
-        : 'N/A';
-    const change = Number(quote.change || 0);
-
-    document.getElementById('currentPrice').textContent = priceText;
-    document.getElementById('currentPrice').className = change > 0 ? 'positive' : change < 0 ? 'negative' : '';
-    document.getElementById('recommendation').textContent = recommendationText;
-    document.getElementById('confidence').textContent = confidence;
-    document.getElementById('targetPrice').textContent = targetPrice;
-
-    const reasoning = Array.isArray(recommendation.reasoning)
-        ? recommendation.reasoning.join(' ')
-        : recommendation.reasoning || 'Recommendation ready.';
-    setAnalysisMessage(reasoning, true);
-}
-
-function setAnalysisMessage(message, neutral = true) {
-    const summary = document.getElementById('analysisSummary');
-    summary.textContent = message;
-    summary.style.borderColor = neutral ? 'rgba(148, 163, 184, 0.18)' : 'rgba(248, 113, 113, 0.22)';
-    summary.style.color = neutral ? 'var(--text-soft)' : '#fecaca';
-}
-
 async function loadMarketIntelligence() {
     try {
         const response = await fetch(`${API_BASE}/api/v1/market/intelligence/today?limit=5`);
         if (!response.ok) {
             throw new Error('Failed to load market intelligence.');
         }
-
         const data = await response.json();
         appState.market = data;
         renderMarketIntelligence(data);
@@ -138,9 +90,12 @@ async function loadMarketIntelligence() {
         renderIdeaMiniList('topBullishIdeas', [], 'No bullish ideas are available right now.');
         renderIdeaMiniList('topBearishIdeas', [], 'No bearish ideas are available right now.');
         renderStoryList('majorStories', [], 'Market stories are temporarily unavailable.');
+        renderDecisionMethod(null, null);
         setElementText('marketIntelTimestamp', 'Market data unavailable');
         setElementText('tableSummaryPill', 'Market report unavailable');
-        document.getElementById('decisionMethodDescription').textContent = error.message;
+        setElementText('topBuyPill', 'Top buy: --');
+        setElementText('decisionModePill', '--');
+        setElementText('dataFreshnessPolicy', error.message);
     }
 }
 
@@ -150,7 +105,6 @@ async function loadDailyReport() {
         if (!response.ok) {
             throw new Error('Failed to load daily report.');
         }
-
         const data = await response.json();
         appState.report = data;
         renderDailyReport(data);
@@ -158,8 +112,8 @@ async function loadDailyReport() {
         renderNarrative([]);
         renderRecentEvaluations([]);
         renderDailyBreakdown([]);
-        setElementText('predictionAccuracyBadge', 'Pending');
         document.getElementById('predictionScoreboard').innerHTML = '<div class="empty-state">Daily report unavailable right now.</div>';
+        setElementText('predictionAccuracyBadge', 'Pending');
     }
 }
 
@@ -173,24 +127,19 @@ function renderMarketIntelligence(data) {
     renderPredictionScoreboard(data.scoreboard || {});
 
     setElementText('marketIntelTimestamp', `Updated ${formatDateTime(data.asOf)}`);
-    setElementText('reportDatePill', `Report date: ${data.reportDate || '--'}`);
+    setElementText('reportDateBadge', `Report date: ${data.reportDate || '--'}`);
+    setElementText('reportDatePill', data.reportDate || '--');
     setElementText('resetAtBadge', `Reset: ${formatShortDateTime(data.resetAt)}`);
     setElementText('topBuyPill', `Top buy: ${data.summary?.topBuySymbol || 'None today'}`);
-    setElementText(
-        'decisionModePill',
-        `Method: ${prettifyMode(data.decisionMethod?.mode || 'loading')}`
-    );
-    setElementText(
-        'tableSummaryPill',
-        `${ideas.length} ranked names | ${data.summary?.buyCount ?? 0} buys`
-    );
+    setElementText('decisionModePill', prettifyMode(data.decisionMethod?.mode || '--'));
+    setElementText('tableSummaryPill', `${ideas.length} names | ${data.summary?.buyCount ?? 0} buys`);
 
     setElementText('statBuyCount', String(data.summary?.buyCount ?? 0));
     setElementText('statWatchCount', String(data.summary?.watchCount ?? 0));
     setElementText('statAvoidCount', String(data.summary?.avoidCount ?? 0));
-    setElementText('statBuyDetail', data.summary?.topBuySymbol ? `Best current long idea: ${data.summary.topBuySymbol}` : 'No buy reached the threshold yet.');
-    setElementText('statWatchDetail', `${data.summary?.watchCount ?? 0} names need another look before acting.`);
-    setElementText('statAvoidDetail', `${data.summary?.avoidCount ?? 0} names failed the deterministic threshold today.`);
+    setElementText('statBuyDetail', data.summary?.topBuySymbol ? `Best current long idea: ${data.summary.topBuySymbol}` : 'No buy met threshold yet.');
+    setElementText('statWatchDetail', `${data.summary?.watchCount ?? 0} names still need another look.`);
+    setElementText('statAvoidDetail', `${data.summary?.avoidCount ?? 0} names failed the current threshold.`);
     setElementText('dataFreshnessPolicy', data.dataFreshness?.datasetPolicy || 'Dataset freshness policy unavailable.');
 }
 
@@ -202,41 +151,16 @@ function renderDailyReport(data) {
     renderRecentEvaluations(data.recentEvaluations || []);
     renderDailyBreakdown(data.dailyBreakdown || []);
 
-    setElementText('heroSystemRating', overall.systemRating || 'PENDING');
-    setElementText(
-        'heroSystemDetail',
-        overall.evaluatedPredictions
-            ? `${overall.evaluatedPredictions} evaluated rows in the last ${data.windowDays} days.`
-            : 'Predictions are still accumulating evaluated outcomes.'
-    );
-    setElementText('heroTrendStatus', prettifyMode(trend.status || 'stable'));
-    setElementText(
-        'heroTrendDetail',
-        trend.recentAccuracyPct != null
-            ? `Recent window ${formatPct(trend.recentAccuracyPct, 2, false)} vs prior ${formatPct(trend.priorAccuracyPct, 2, false)}`
-            : trend.message || 'Trend signal is not available yet.'
-    );
-
-    setElementText(
-        'systemRatingBadge',
-        `System rating: ${overall.systemRating || 'PENDING'}`
-    );
+    setElementText('systemRatingBadge', `System rating: ${overall.systemRating || 'PENDING'}`);
     setElementText(
         'predictionAccuracyBadge',
-        overall.accuracyPct != null
-            ? `${formatPct(overall.accuracyPct, 2, false)} accuracy`
-            : 'Awaiting evaluations'
+        overall.accuracyPct != null ? `${formatPct(overall.accuracyPct, 2, false)} accuracy` : 'Awaiting evaluations'
     );
-    document.getElementById('predictionAccuracyBadge').className = `status-chip ${
-        overall.accuracyPct == null ? '' : overall.accuracyPct >= 55 ? 'success' : 'warning'
-    }`;
 
     setElementText('statAccuracy', overall.accuracyPct != null ? formatPct(overall.accuracyPct, 2, false) : '--');
     setElementText(
         'statAccuracyDetail',
-        overall.evaluatedPredictions
-            ? `${overall.correctPredictions ?? 0} correct of ${overall.evaluatedPredictions}.`
-            : 'The next-day validation set has not settled yet.'
+        overall.evaluatedPredictions ? `${overall.correctPredictions ?? 0} correct of ${overall.evaluatedPredictions}.` : 'Waiting for next-day validation.'
     );
     setElementText(
         'statExcessReturn',
@@ -246,31 +170,34 @@ function renderDailyReport(data) {
         'statExcessDetail',
         overall.averageBenchmarkReturnPct != null
             ? `Benchmark average ${formatPct(overall.averageBenchmarkReturnPct, 4, true)}`
-            : 'Benchmark comparison will appear after evaluations settle.'
+            : 'Benchmark comparison appears after evaluations settle.'
     );
+
+    const narrative = data.narrative || [];
+    if (narrative.length) {
+        setElementText('tableSummaryPill', narrative[0]);
+    }
 
     const exportDays = data.windowDays || 30;
     document.getElementById('dailyExportLink').href = `/api/v1/market/predictions/daily-report.csv?days=${exportDays}`;
+
+    // expose trend in the validation page header chip if needed later
+    document.getElementById('predictionAccuracyBadge').className = `mini-chip ${
+        overall.accuracyPct == null ? '' : overall.accuracyPct >= 55 ? 'success' : 'warning'
+    }`;
 }
 
 function syncHeaderFromState() {
-    const market = appState.market;
-    const report = appState.report;
-    const resetAt = market?.resetAt || report?.resetAt;
-
+    const resetAt = appState.market?.resetAt || appState.report?.resetAt;
     if (resetAt) {
         setElementText('resetAtBadge', `Reset: ${formatShortDateTime(resetAt)}`);
-    }
-
-    if (report?.overall?.systemRating) {
-        setElementText('systemRatingBadge', `System rating: ${report.overall.systemRating}`);
     }
 }
 
 function renderRecommendationTable(ideas) {
     const tbody = document.getElementById('recommendationRows');
     if (!ideas.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="muted">No ranked recommendations are available right now.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="subtle">No ranked recommendations are available right now.</td></tr>';
         return;
     }
 
@@ -291,22 +218,16 @@ function renderRecommendationTable(ideas) {
         const price = idea.currentPrice != null ? `$${Number(idea.currentPrice).toFixed(2)}` : '--';
         const change = idea.changePercent != null ? formatPct(Number(idea.changePercent), 2, true) : '--';
         const score = idea.buyScore != null ? Number(idea.buyScore).toFixed(2) : '--';
-        const actionLabel = (idea.action || 'watch').toUpperCase();
-        const evidenceLinks = (idea.supportingEvidence || [])
-            .slice(0, 2)
-            .map((item) => item.url
-                ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.source || 'Source')}</a>`
-                : `<span>${escapeHtml(item.source || 'Source')}</span>`)
-            .join('<br>');
+        const evidenceSummary = (idea.supportingEvidence || []).slice(0, 1).map((item) => item.summary || item.title || '').join('');
 
         return `
             <tr onclick="searchStockFromList('${escapeHtml(idea.symbol)}')">
                 <td class="symbol-cell">
                     <strong>${escapeHtml(idea.symbol)}</strong>
                     <span>${escapeHtml(idea.companyName || 'Company')}</span><br>
-                    <span>${escapeHtml(idea.topic || 'market')}</span>
+                    <span>${escapeHtml(idea.topic || 'Market')}</span>
                 </td>
-                <td><span class="badge ${badgeTone(idea.action)}">${actionLabel}</span></td>
+                <td><span class="badge ${badgeTone(idea.action)}">${escapeHtml((idea.action || 'watch').toUpperCase())}</span></td>
                 <td><span class="badge ${badgeTone(idea.dailyRating)}">${escapeHtml(idea.dailyRating || '--')}</span></td>
                 <td class="mono">${score}</td>
                 <td><span class="badge ${badgeTone(idea.direction)}">${escapeHtml((idea.direction || '--').toUpperCase())}</span></td>
@@ -316,8 +237,8 @@ function renderRecommendationTable(ideas) {
                     <div class="${Number(idea.changePercent || 0) >= 0 ? 'positive' : 'negative'} mono">${change}</div>
                 </td>
                 <td>
-                    <div class="subtle">${evidenceCount} current evidence links</div>
-                    <div class="subtle">${evidenceLinks || 'No live links stored.'}</div>
+                    <div class="subtle">${evidenceCount} live links</div>
+                    <div class="subtle">${escapeHtml(evidenceSummary || 'No stored evidence summary.')}</div>
                 </td>
                 <td>
                     ${localModel.verdict ? `<span class="badge ${badgeTone(localModel.verdict)}">${escapeHtml(localModel.verdict.toUpperCase())}</span>` : '<span class="subtle">Not reviewed</span>'}
@@ -335,74 +256,25 @@ function renderIdeaMiniList(containerId, ideas, emptyMessage) {
         return;
     }
 
-    container.innerHTML = ideas.map((idea, index) => {
-        const localModel = idea.localModelAnalysis || {};
-        const confidenceText = idea.confidence != null ? `${Math.round(Number(idea.confidence) * 100)}% confidence` : 'Confidence unavailable';
-        const evidenceLinks = (idea.supportingEvidence || []).filter((item) => item.url).slice(0, 2);
-        return `
-            <div class="idea-card" onclick="searchStockFromList('${escapeHtml(idea.symbol)}')">
-                <div class="idea-card-head">
-                    <div>
-                        <strong>${index + 1}. ${escapeHtml(idea.symbol)}</strong><br>
-                        <small>${escapeHtml(idea.companyName || 'Company')} | ${escapeHtml(idea.topic || 'Market')}</small>
-                    </div>
-                    <span class="badge ${badgeTone(idea.action)}">${escapeHtml((idea.action || 'watch').toUpperCase())}</span>
+    container.innerHTML = ideas.map((idea, index) => `
+        <div class="idea-card" onclick="searchStockFromList('${escapeHtml(idea.symbol)}')">
+            <div class="idea-card-head">
+                <div>
+                    <strong>${index + 1}. ${escapeHtml(idea.symbol)}</strong><br>
+                    <span class="subtle">${escapeHtml(idea.companyName || 'Company')}</span>
                 </div>
-                <div class="microcopy" style="margin-top: 10px;">${escapeHtml(idea.reasoning?.slice(0, 2).join(' ') || 'No reasoning stored.')}</div>
-                <div class="microcopy" style="margin-top: 8px;">${confidenceText} | buy score ${idea.buyScore != null ? Number(idea.buyScore).toFixed(2) : '--'}</div>
-                ${localModel.verdict ? `<div class="microcopy" style="margin-top: 8px;"><span class="badge ${badgeTone(localModel.verdict)}">${escapeHtml(localModel.verdict.toUpperCase())}</span> ${escapeHtml(localModel.thesisSummary || '')}</div>` : ''}
-                ${evidenceLinks.length ? `
-                    <div class="evidence-list">
-                        ${evidenceLinks.map((item) => `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.source || 'Source')}: ${escapeHtml(item.title || 'Evidence')}</a>`).join('')}
-                    </div>
-                ` : ''}
+                <span class="badge ${badgeTone(idea.action)}">${escapeHtml((idea.action || 'watch').toUpperCase())}</span>
             </div>
-        `;
-    }).join('');
-}
-
-function renderStoryList(containerId, stories, emptyMessage) {
-    const container = document.getElementById(containerId);
-    if (!stories.length) {
-        container.innerHTML = `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`;
-        return;
-    }
-
-    container.innerHTML = stories.map((story) => {
-        const linkedStocks = (story.linkedStocks || []).slice(0, 5);
-        return `
-            <div class="story-item">
-                <div class="story-head">
-                    <div>
-                        <strong>${escapeHtml(story.title || 'Untitled story')}</strong><br>
-                        <small>${escapeHtml(story.source || 'Source')} | ${escapeHtml(story.topic || 'Market')} | ${formatDateTime(story.publishedAt)}</small>
-                    </div>
-                    <span class="badge ${badgeTone(story.directionalBias || 'neutral')}">${escapeHtml((story.directionalBias || 'mixed').toUpperCase())}</span>
-                </div>
-                ${story.summary ? `<div class="microcopy" style="margin-top: 10px;">${escapeHtml(story.summary)}</div>` : ''}
-                ${linkedStocks.length ? `<div class="microcopy" style="margin-top: 10px;">${linkedStocks.map((item) => `${escapeHtml(item.symbol)}: ${escapeHtml(item.reason || 'linked')}`).join(' | ')}</div>` : ''}
-                ${story.url ? `<div class="evidence-list"><a href="${escapeHtml(story.url)}" target="_blank" rel="noopener noreferrer">Open source story</a></div>` : ''}
-            </div>
-        `;
-    }).join('');
-}
-
-function renderDecisionMethod(method, freshness) {
-    document.getElementById('decisionMethodDescription').textContent = method?.description || 'Deterministic scoring description unavailable.';
-    const workflowList = document.getElementById('decisionWorkflowList');
-    const steps = [
-        'Current events and structured evidence are collected from open sources.',
-        'Stocks are scored with deterministic weights before any model opinion is added.',
-        'Ollama only evaluates the prepared dataset and can support, mix, or contradict the thesis.',
-        freshness?.datasetPolicy || 'The dataset refreshes continually and resets to a new report date at midnight.',
-    ];
-    workflowList.innerHTML = steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('');
+            <div class="microcopy">${escapeHtml(idea.reasoning?.[0] || 'No reasoning stored.')}</div>
+            <div class="microcopy">${idea.buyScore != null ? `Buy score ${Number(idea.buyScore).toFixed(2)}` : 'Buy score unavailable'} | ${idea.confidence != null ? `${Math.round(Number(idea.confidence) * 100)}% confidence` : 'Confidence unavailable'}</div>
+        </div>
+    `).join('');
 }
 
 function renderNarrative(lines) {
     const container = document.getElementById('dailyNarrative');
     if (!lines.length) {
-        container.innerHTML = '<li>No report narrative is available yet.</li>';
+        container.innerHTML = '<li>No report notes are available yet.</li>';
         return;
     }
     container.innerHTML = lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('');
@@ -414,22 +286,17 @@ function renderRecentEvaluations(rows) {
         container.innerHTML = '<div class="empty-state">No evaluated daily predictions yet.</div>';
         return;
     }
-
     container.innerHTML = rows.map((row) => `
         <div class="evaluation-item">
             <div class="status-row">
                 <div>
                     <strong>${escapeHtml(row.symbol)} ${escapeHtml((row.action || row.direction || '').toUpperCase())}</strong>
-                    <div class="microcopy">${escapeHtml(row.topic || 'Market')} | ${escapeHtml(row.catalyst || 'Daily catalyst')}</div>
+                    <div class="microcopy">${escapeHtml(row.topic || 'Market')} | ${escapeHtml(row.catalyst || 'Catalyst')}</div>
                 </div>
                 <span class="badge ${badgeTone(row.status)}">${escapeHtml((row.status || 'pending').toUpperCase())}</span>
             </div>
-            <div class="microcopy" style="margin-top: 10px;">
-                Return ${row.realizedReturnPct != null ? formatPct(row.realizedReturnPct, 2, true) : '--'} |
-                Excess ${row.excessReturnPct != null ? formatPct(row.excessReturnPct, 2, true) : '--'} |
-                Rating ${escapeHtml(row.dailyRating || '--')}
-            </div>
-            <div class="microcopy" style="margin-top: 8px;">${escapeHtml(row.evaluationNotes || 'Waiting for evaluation notes.')}</div>
+            <div class="microcopy">Return ${row.realizedReturnPct != null ? formatPct(row.realizedReturnPct, 2, true) : '--'} | Excess ${row.excessReturnPct != null ? formatPct(row.excessReturnPct, 2, true) : '--'} | Rating ${escapeHtml(row.dailyRating || '--')}</div>
+            <div class="microcopy">${escapeHtml(row.evaluationNotes || 'Waiting for evaluation notes.')}</div>
         </div>
     `).join('');
 }
@@ -440,7 +307,6 @@ function renderDailyBreakdown(rows) {
         container.innerHTML = '<div class="empty-state">Daily breakdown rows will appear once reports are stored.</div>';
         return;
     }
-
     container.innerHTML = rows.map((row) => `
         <div class="breakdown-row">
             <strong>${escapeHtml(row.reportDate)}</strong>
@@ -475,10 +341,45 @@ function renderPredictionScoreboard(scoreboard) {
                     </div>
                     <span class="badge ${badgeTone(idea.status)}">${escapeHtml((idea.status || 'pending').toUpperCase())}</span>
                 </div>
-                <div class="microcopy" style="margin-top: 8px;">${escapeHtml(idea.evaluationNotes || 'Waiting for the holding window to complete.')}</div>
+                <div class="microcopy">${escapeHtml(idea.evaluationNotes || 'Waiting for the holding window to complete.')}</div>
             </div>
-        `).join('') : '<div class="empty-state">No tracked ideas yet. The next workspace refresh will add them.</div>'}
+        `).join('') : '<div class="empty-state">No tracked ideas yet. The next refresh will add them.</div>'}
     `;
+}
+
+function renderStoryList(containerId, stories, emptyMessage) {
+    const container = document.getElementById(containerId);
+    if (!stories.length) {
+        container.innerHTML = `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`;
+        return;
+    }
+    container.innerHTML = stories.map((story) => {
+        const linkedStocks = (story.linkedStocks || []).slice(0, 4);
+        return `
+            <div class="story-item">
+                <div class="story-head">
+                    <div>
+                        <strong>${escapeHtml(story.title || 'Untitled story')}</strong><br>
+                        <span class="subtle">${escapeHtml(story.source || 'Source')} | ${escapeHtml(story.topic || 'Market')} | ${formatDateTime(story.publishedAt)}</span>
+                    </div>
+                    <span class="badge ${badgeTone(story.directionalBias || 'neutral')}">${escapeHtml((story.directionalBias || 'mixed').toUpperCase())}</span>
+                </div>
+                ${linkedStocks.length ? `<div class="microcopy">${linkedStocks.map((item) => `${escapeHtml(item.symbol)}: ${escapeHtml(item.reason || 'linked')}`).join(' | ')}</div>` : ''}
+                ${story.url ? `<div class="microcopy"><a href="${escapeHtml(story.url)}" target="_blank" rel="noopener noreferrer">Open story</a></div>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function renderDecisionMethod(method, freshness) {
+    document.getElementById('decisionMethodDescription').textContent = method?.description || 'Decision logic unavailable.';
+    const steps = [
+        'Collect current stories and structured evidence from open sources.',
+        'Score stocks with deterministic weights before adding model opinion.',
+        'Use Ollama only to review the prepared dataset, not to invent facts.',
+        freshness?.datasetPolicy || 'Refresh data continuously and reset to a new report date at midnight.',
+    ];
+    document.getElementById('decisionWorkflowList').innerHTML = steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('');
 }
 
 async function searchMarketNews() {
@@ -487,15 +388,12 @@ async function searchMarketNews() {
         renderStoryList('newsSearchResults', [], 'Enter a topic to search current event coverage.');
         return;
     }
-
-    document.getElementById('newsSearchResults').innerHTML = '<div class="loading-state">Searching live market news...</div>';
-
+    document.getElementById('newsSearchResults').innerHTML = '<div class="loading-state">Searching live coverage...</div>';
     try {
         const response = await fetch(`${API_BASE}/api/v1/market/news/search?query=${encodeURIComponent(query)}&limit=8`);
         if (!response.ok) {
             throw new Error('Live news search is unavailable.');
         }
-
         const data = await response.json();
         renderStoryList('newsSearchResults', data.results || [], 'No current stories matched that search.');
     } catch (error) {
@@ -503,16 +401,191 @@ async function searchMarketNews() {
     }
 }
 
+async function searchStock() {
+    const input = document.getElementById('stockSearch');
+    const symbol = input.value.trim().toUpperCase();
+    if (!symbol) {
+        setAnalysisMessage('Enter a stock symbol to inspect drilldown details.', true);
+        return;
+    }
+
+    switchPage('drilldown');
+    document.getElementById('stockAnalysis').style.display = 'block';
+    document.getElementById('analysisSymbol').textContent = symbol;
+    setAnalysisPlaceholders();
+    setAnalysisMessage('Loading quote, recommendation, company, research, analysis, and news...', true);
+
+    const endpoints = {
+        quote: `${API_BASE}/api/v1/stocks/${symbol}/quote`,
+        recommendation: `${API_BASE}/api/v1/stocks/${symbol}/recommendation`,
+        company: `${API_BASE}/api/v1/stocks/${symbol}/company`,
+        analysis: `${API_BASE}/api/v1/stocks/${symbol}/analysis`,
+        research: `${API_BASE}/api/v1/stocks/${symbol}/research-prediction`,
+        news: `${API_BASE}/api/v1/stocks/${symbol}/news?limit=5`,
+    };
+
+    const entries = await Promise.all(
+        Object.entries(endpoints).map(async ([key, url]) => {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`${key} unavailable`);
+                }
+                return [key, await response.json()];
+            } catch (error) {
+                return [key, null];
+            }
+        })
+    );
+
+    const payload = Object.fromEntries(entries);
+
+    if (!payload.quote && !payload.recommendation && !payload.company) {
+        setAnalysisMessage(`Unable to load drilldown for ${symbol}.`, false);
+        return;
+    }
+
+    renderStockDrilldown(symbol, payload);
+}
+
+function setAnalysisPlaceholders() {
+    const ids = [
+        'currentPrice', 'recommendation', 'confidence', 'targetPrice',
+        'analysisMarketCap', 'analysisSector', 'analysisRisk', 'analysisPotentialReturn',
+        'analysisOverallScore', 'analysisResearch21d',
+    ];
+    ids.forEach((id) => setElementText(id, '--'));
+    setElementText('analysisCompanyLine', 'Waiting for drilldown data.');
+    setElementText('analysisUpdatedAt', '--');
+    document.getElementById('analysisCompanyDescription').textContent = 'Waiting for company info.';
+    document.getElementById('analysisCompanyWebsite').innerHTML = '';
+    document.getElementById('analysisTechnical').textContent = 'Waiting for technical analysis.';
+    document.getElementById('analysisResearchSignals').innerHTML = '<div class="empty-state">Waiting for research prediction.</div>';
+    document.getElementById('analysisNews').innerHTML = '<div class="empty-state">Waiting for stock news.</div>';
+}
+
+function renderStockDrilldown(symbol, payload) {
+    const quote = payload.quote || {};
+    const recommendation = payload.recommendation || {};
+    const company = payload.company || {};
+    const analysis = payload.analysis || {};
+    const research = payload.research || {};
+    const news = payload.news || [];
+
+    setElementText('analysisCompanyLine', `${company.name || recommendation.company_name || symbol}${company.sector ? ` | ${company.sector}` : ''}`);
+    setElementText('analysisUpdatedAt', quote.timestamp ? formatShortDateTime(quote.timestamp) : '--');
+
+    setElementText('currentPrice', quote.price != null ? `$${Number(quote.price).toFixed(2)}` : '--');
+    setElementText('recommendation', recommendation.recommendation ? String(recommendation.recommendation).toUpperCase() : '--');
+    setElementText('confidence', recommendation.confidence != null ? `${Math.round(Number(recommendation.confidence) * 100)}%` : '--');
+    setElementText('targetPrice', recommendation.target_price != null ? `$${Number(recommendation.target_price).toFixed(2)}` : '--');
+    setElementText('analysisMarketCap', company.market_cap != null ? formatMarketCap(company.market_cap) : '--');
+    setElementText('analysisSector', company.sector || '--');
+    setElementText('analysisRisk', recommendation.risk_level ? String(recommendation.risk_level).toUpperCase() : '--');
+    setElementText('analysisPotentialReturn', recommendation.potential_return != null ? formatPct(Number(recommendation.potential_return), 2, true) : '--');
+    setElementText('analysisOverallScore', recommendation.overall_score != null ? Number(recommendation.overall_score).toFixed(1) : '--');
+
+    const research21d = findResearchHorizon(research, '21d');
+    setElementText(
+        'analysisResearch21d',
+        research21d ? `${String(research21d.recommendation || '--').replace(/_/g, ' ')} | ${Math.round(Number(research21d.confidence || 0) * 100)}% conf` : '--'
+    );
+
+    const reasoning = Array.isArray(recommendation.reasoning) ? recommendation.reasoning.join(' ') : recommendation.reasoning;
+    setAnalysisMessage(reasoning || company.description || 'Drilldown loaded.', true);
+
+    document.getElementById('analysisCompanyDescription').textContent = company.description || 'No company description available.';
+    document.getElementById('analysisCompanyWebsite').innerHTML = company.website
+        ? `<a href="${escapeHtml(company.website)}" target="_blank" rel="noopener noreferrer">${escapeHtml(company.website)}</a>`
+        : '';
+
+    document.getElementById('analysisTechnical').textContent = buildTechnicalSummary(analysis);
+    renderResearchSignals(research);
+    renderStockNews(news);
+}
+
+function renderResearchSignals(research) {
+    const container = document.getElementById('analysisResearchSignals');
+    const horizons = research.horizons || [];
+    if (!horizons.length) {
+        container.innerHTML = '<div class="empty-state">No research prediction available.</div>';
+        return;
+    }
+
+    container.innerHTML = horizons.slice(0, 3).map((horizon) => `
+        <div class="metric-tile">
+            <div class="label">${escapeHtml(horizon.horizon || 'horizon')}</div>
+            <div class="value">${escapeHtml(String(horizon.recommendation || '--').replace(/_/g, ' ').toUpperCase())}</div>
+            <div class="microcopy">
+                ${horizon.probability_outperform != null ? `${Math.round(Number(horizon.probability_outperform) * 100)}% outperform` : '--'} |
+                ${horizon.confidence != null ? `${Math.round(Number(horizon.confidence) * 100)}% confidence` : '--'}
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderStockNews(news) {
+    const container = document.getElementById('analysisNews');
+    if (!news.length) {
+        container.innerHTML = '<div class="empty-state">No recent stock news available.</div>';
+        return;
+    }
+    container.innerHTML = news.map((item) => `
+        <div class="story-item">
+            <div class="story-head">
+                <div>
+                    <strong>${escapeHtml(item.title || 'Untitled story')}</strong><br>
+                    <span class="subtle">${escapeHtml(item.source || 'Source')} | ${formatDateTime(item.published_at)}</span>
+                </div>
+                <span class="badge ${badgeTone(item.sentiment || 'neutral')}">${escapeHtml(String(item.sentiment || 'neutral').toUpperCase())}</span>
+            </div>
+            <div class="microcopy">${escapeHtml(item.description || 'No description available.')}</div>
+            ${item.url ? `<div class="microcopy"><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">Open story</a></div>` : ''}
+        </div>
+    `).join('');
+}
+
+function buildTechnicalSummary(analysis) {
+    if (!analysis || Object.keys(analysis).length === 0) {
+        return 'No technical snapshot available.';
+    }
+
+    const bits = [];
+    if (analysis.trend) {
+        bits.push(`Trend: ${analysis.trend}`);
+    }
+    const technicals = analysis.technical_indicators || {};
+    if (technicals.rsi != null) {
+        bits.push(`RSI ${Number(technicals.rsi).toFixed(1)}`);
+    }
+    if (technicals.macd != null && technicals.macd_signal != null) {
+        bits.push(`MACD ${Number(technicals.macd).toFixed(2)} vs signal ${Number(technicals.macd_signal).toFixed(2)}`);
+    }
+    if (technicals.sma_20 != null && technicals.sma_50 != null) {
+        bits.push(`SMA20 ${Number(technicals.sma_20).toFixed(2)} / SMA50 ${Number(technicals.sma_50).toFixed(2)}`);
+    }
+    return bits.length ? bits.join('. ') : 'Technical snapshot returned limited data.';
+}
+
+function findResearchHorizon(research, wanted) {
+    return (research.horizons || []).find((item) => item.horizon === wanted) || null;
+}
+
+function setAnalysisMessage(message, neutral = true) {
+    const summary = document.getElementById('analysisSummary');
+    summary.textContent = message;
+    summary.style.borderColor = neutral ? 'rgba(148, 163, 184, 0.18)' : 'rgba(248, 113, 113, 0.22)';
+    summary.style.color = neutral ? 'var(--text-soft)' : '#fecaca';
+}
+
 async function loadStockList(listType) {
     const container = document.getElementById('stockLists');
     container.innerHTML = '<div class="loading-state">Loading stock screen...</div>';
-
     try {
         const response = await fetch(`${API_BASE}/api/v1/lists/${listType}?max_items=10`);
         if (!response.ok) {
             throw new Error('Stock screen unavailable.');
         }
-
         const data = await response.json();
         renderStockList(data);
     } catch (error) {
@@ -524,7 +597,7 @@ function renderStockList(data) {
     const container = document.getElementById('stockLists');
     const items = data.items || [];
     if (!items.length) {
-        container.innerHTML = '<div class="empty-state">That screen has no current data. Free providers may be rate-limited or temporarily unavailable.</div>';
+        container.innerHTML = '<div class="empty-state">That screen has no current data right now.</div>';
         return;
     }
 
@@ -548,9 +621,7 @@ function renderStockList(data) {
                                 <span>${escapeHtml(stock.company_name || 'Company')}</span>
                             </td>
                             <td class="mono">${stock.current_price != null ? `$${Number(stock.current_price).toFixed(2)}` : '--'}</td>
-                            <td class="${Number(stock.change_percent || 0) >= 0 ? 'positive' : 'negative'} mono">
-                                ${stock.change_percent != null ? formatPct(Number(stock.change_percent), 2, true) : '--'}
-                            </td>
+                            <td class="${Number(stock.change_percent || 0) >= 0 ? 'positive' : 'negative'} mono">${stock.change_percent != null ? formatPct(Number(stock.change_percent), 2, true) : '--'}</td>
                             <td class="mono">${stock.score != null ? Number(stock.score).toFixed(0) : '--'}</td>
                             <td><span class="badge ${badgeTone(stock.recommendation || 'watch')}">${escapeHtml((stock.recommendation || 'hold').toUpperCase())}</span></td>
                         </tr>
@@ -563,8 +634,8 @@ function renderStockList(data) {
 
 function searchStockFromList(symbol) {
     document.getElementById('stockSearch').value = symbol;
+    switchPage('drilldown');
     searchStock();
-    document.getElementById('stockAnalysis').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function checkSystemHealth() {
@@ -582,34 +653,10 @@ async function checkSystemHealth() {
 
 function updateSystemStatus(health) {
     const subsystems = health?.subsystems || {};
-    applyStatusBadge('apiStatus', subsystems.api?.status, {
-        healthy: 'Online',
-        degraded: 'Degraded',
-        unhealthy: 'Offline',
-        idle: 'Idle',
-        unknown: 'Unknown',
-    });
-    applyStatusBadge('dataStatus', subsystems.data?.status, {
-        healthy: 'Active',
-        degraded: 'Limited',
-        unhealthy: 'Inactive',
-        idle: 'Idle',
-        unknown: 'Unknown',
-    });
-    applyStatusBadge('mlStatus', subsystems.ml?.status, {
-        healthy: 'Running',
-        degraded: 'Partial',
-        unhealthy: 'Stopped',
-        idle: 'Idle',
-        unknown: 'Unknown',
-    });
-    applyStatusBadge('telemetryStatus', subsystems.observability?.status, {
-        healthy: 'Tracking',
-        degraded: 'Partial',
-        unhealthy: 'Down',
-        idle: 'Idle',
-        unknown: 'Unknown',
-    });
+    applyStatusBadge('apiStatus', subsystems.api?.status, { healthy: 'Online', degraded: 'Degraded', unhealthy: 'Offline', idle: 'Idle', unknown: 'Unknown' });
+    applyStatusBadge('dataStatus', subsystems.data?.status, { healthy: 'Active', degraded: 'Limited', unhealthy: 'Inactive', idle: 'Idle', unknown: 'Unknown' });
+    applyStatusBadge('mlStatus', subsystems.ml?.status, { healthy: 'Running', degraded: 'Partial', unhealthy: 'Stopped', idle: 'Idle', unknown: 'Unknown' });
+    applyStatusBadge('telemetryStatus', subsystems.observability?.status, { healthy: 'Tracking', degraded: 'Partial', unhealthy: 'Down', idle: 'Idle', unknown: 'Unknown' });
 }
 
 function applyStatusBadge(elementId, status, labels) {
@@ -621,39 +668,27 @@ function applyStatusBadge(elementId, status, labels) {
 
 function badgeTone(value) {
     const normalized = String(value || '').toLowerCase();
-    if (['buy', 'a', 'b', 'up', 'correct', 'supports'].includes(normalized)) {
+    if (['buy', 'a', 'b', 'up', 'correct', 'supports', 'positive'].includes(normalized)) {
         return normalized === 'supports' ? 'supports' : 'buy';
     }
-    if (['watch', 'c', 'mixed', 'pending'].includes(normalized)) {
-        return normalized === 'mixed' ? 'watch' : 'watch';
+    if (['watch', 'c', 'mixed', 'pending', 'neutral'].includes(normalized)) {
+        return 'watch';
     }
-    if (['avoid', 'd', 'f', 'down', 'incorrect', 'contradicts', 'sell', 'strong_sell'].includes(normalized)) {
+    if (['avoid', 'd', 'f', 'down', 'incorrect', 'contradicts', 'sell', 'strong_sell', 'negative'].includes(normalized)) {
         return normalized === 'contradicts' ? 'contradicts' : 'avoid';
     }
     return 'neutral';
 }
 
-function ratingTone(rating) {
-    return badgeTone(rating);
-}
-
 function statusTone(status) {
-    if (status === 'healthy') {
-        return 'buy';
-    }
-    if (status === 'degraded') {
-        return 'watch';
-    }
-    if (status === 'unhealthy') {
-        return 'avoid';
-    }
+    if (status === 'healthy') return 'buy';
+    if (status === 'degraded') return 'watch';
+    if (status === 'unhealthy') return 'avoid';
     return 'neutral';
 }
 
 function prettifyMode(value) {
-    return String(value || '--')
-        .replace(/-/g, ' ')
-        .replace(/\b\w/g, (match) => match.toUpperCase());
+    return String(value || '--').replace(/-/g, ' ').replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function formatPct(value, digits = 2, signed = true) {
@@ -666,22 +701,22 @@ function formatPct(value, digits = 2, signed = true) {
 }
 
 function formatDateTime(value) {
-    if (!value) {
-        return '--';
-    }
+    if (!value) return '--';
     return new Date(value).toLocaleString();
 }
 
 function formatShortDateTime(value) {
-    if (!value) {
-        return '--';
-    }
-    return new Date(value).toLocaleString([], {
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-    });
+    if (!value) return '--';
+    return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function formatMarketCap(value) {
+    const amount = Number(value);
+    if (Number.isNaN(amount)) return '--';
+    if (amount >= 1_000_000_000_000) return `$${(amount / 1_000_000_000_000).toFixed(2)}T`;
+    if (amount >= 1_000_000_000) return `$${(amount / 1_000_000_000).toFixed(2)}B`;
+    if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(2)}M`;
+    return `$${amount.toFixed(0)}`;
 }
 
 function escapeHtml(value) {
@@ -695,9 +730,7 @@ function escapeHtml(value) {
 
 function setElementText(id, text) {
     const element = document.getElementById(id);
-    if (element) {
-        element.textContent = text;
-    }
+    if (element) element.textContent = text;
 }
 
 setInterval(() => {

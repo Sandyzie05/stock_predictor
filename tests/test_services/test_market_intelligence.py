@@ -128,9 +128,33 @@ async def test_build_today_report_links_news_to_stocks():
     assert nvda_idea["localModelAnalysis"]["verdict"] == "supports"
     assert nvda_idea["action"] in {"buy", "watch"}
     assert nvda_idea["dailyRating"] in {"A", "B", "C"}
+    assert "gpu accelerator" in nvda_idea["reasoning"][0].lower()
+    ai_story = next(story for story in report["majorStories"] if story["title"] == "AI datacenter expansion drives fresh server demand")
+    nvda_story_link = next(link for link in ai_story["linkedStocks"] if link["symbol"] == "NVDA")
+    vrt_story_link = next(link for link in ai_story["linkedStocks"] if link["symbol"] == "VRT")
+    assert nvda_story_link["reason"] != vrt_story_link["reason"]
+    assert "gpu accelerator" in nvda_story_link["reason"].lower()
+    assert "datacenter power cooling" in vrt_story_link["reason"].lower()
     assert report["summary"]["buyCount"] >= 0
     assert set(report["summary"]).issuperset(
         {"buyCount", "watchCount", "avoidCount", "topBuySymbol"}
     )
     assert any(story["linkedStocks"] for story in report["majorStories"])
     assert report["scoreboard"]["totalIdeas"] == 4
+
+
+def test_linked_stocks_for_story_preserves_stock_specific_reasons():
+    service = MarketIntelligenceService()
+    links = service._linked_stocks_for_story(
+        service.TOPIC_PROFILES[0],
+        "AI datacenter expansion drives fresh server demand",
+        ["NVDA", "VRT"],
+        "positive",
+    )
+
+    nvda_link = next(link for link in links if link["symbol"] == "NVDA")
+    vrt_link = next(link for link in links if link["symbol"] == "VRT")
+
+    assert nvda_link["reason"] != vrt_link["reason"]
+    assert "gpu accelerator" in nvda_link["reason"].lower()
+    assert "datacenter power cooling" in vrt_link["reason"].lower()
