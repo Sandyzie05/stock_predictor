@@ -4,7 +4,8 @@ API tests for market intelligence routes.
 
 from fastapi.testclient import TestClient
 
-from app.api.routes.market import get_market_intelligence_service
+from app.api.routes.market import (get_daily_prediction_report_service,
+                                   get_market_intelligence_service)
 from app.main import app
 
 
@@ -13,9 +14,10 @@ class FakeMarketIntelligenceService:
         return {
             "asOf": "2026-05-08T00:00:00",
             "majorStories": [{"title": "AI datacenter spending rises", "linkedStocks": [{"symbol": "NVDA"}]}],
-            "topBullish": [{"symbol": "NVDA", "direction": "up", "score": 88.0}],
-            "topBearish": [{"symbol": "NOW", "direction": "down", "score": 66.0}],
+            "topBullish": [{"symbol": "NVDA", "direction": "up", "score": 88.0, "action": "buy", "dailyRating": "A"}],
+            "topBearish": [{"symbol": "NOW", "direction": "down", "score": 66.0, "action": "avoid", "dailyRating": "D"}],
             "scoreboard": {"totalIdeas": 6, "pendingIdeas": 6, "recentIdeas": []},
+            "summary": {"buyCount": 1, "watchCount": 0, "avoidCount": 1},
             "sources": [{"sourceId": "yahoo-finance-yfinance"}],
             "disclaimer": "Research support only.",
         }
@@ -32,10 +34,12 @@ class FakeMarketIntelligenceService:
 
     async def daily_prediction_report(self, days: int = 30):
         return {
-            "overall": {"accuracyPct": 60.0, "evaluatedPredictions": 5},
+            "overall": {"accuracyPct": 60.0, "evaluatedPredictions": 5, "systemRating": "B"},
             "todayPredictions": [
                 {
                     "symbol": "NVDA",
+                    "action": "buy",
+                    "dailyRating": "A",
                     "supportingEvidence": [
                         {"url": "https://example.com/nvda-ai", "title": "AI demand story"}
                     ],
@@ -43,11 +47,27 @@ class FakeMarketIntelligenceService:
             ],
             "recentEvaluations": [],
             "narrative": ["Recent evaluated calls are improving versus the prior window."],
+            "exportColumns": ["report_date", "symbol", "action"],
         }
+
+
+class FakeDailyPredictionReportService:
+    async def export_rows(self, days: int = 30):
+        return ["row"]
+
+    def export_columns(self):
+        return ["report_date", "symbol", "action"]
+
+    def export_row_to_flat_dict(self, row):
+        return {"report_date": "2026-05-10", "symbol": "NVDA", "action": "buy"}
 
 
 async def override_market_service():
     yield FakeMarketIntelligenceService()
+
+
+async def override_daily_report_service():
+    yield FakeDailyPredictionReportService()
 
 
 def test_market_intelligence_today_endpoint():
@@ -105,3 +125,17 @@ def test_market_daily_prediction_report_endpoint():
     assert payload["todayPredictions"][0]["supportingEvidence"][0]["url"].startswith(
         "https://example.com/"
     )
+    assert payload["todayPredictions"][0]["action"] == "buy"
+
+
+def test_market_daily_prediction_report_csv_endpoint():
+    app.dependency_overrides[get_daily_prediction_report_service] = override_daily_report_service
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v1/market/predictions/daily-report.csv?days=30")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "report_date,symbol,action" in response.text
+    assert "2026-05-10,NVDA,buy" in response.text

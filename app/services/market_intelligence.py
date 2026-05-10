@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -17,6 +17,7 @@ from app.services.event_extractor import EventExtractionService
 from app.services.local_model_analysis import LocalModelAnalysisService
 from app.services.prediction_tracker import PredictionTrackerService
 from app.services.real_data_fetcher import RealDataFetcherService
+from app.services.report_clock import next_reset, report_day, report_now
 from app.services.research_models import EvidenceCard
 from app.services.research_prediction import ResearchPredictionService
 from app.services.runtime_cache import TTLCache
@@ -152,12 +153,14 @@ class MarketIntelligenceService:
         if not self.data_fetcher or not self.research_service or not self.tracker:
             raise RuntimeError("MarketIntelligenceService must be used as async context manager")
 
-        cache_key = f"today-report:{limit}"
+        local_now = report_now()
+        report_date = local_now.date().isoformat()
+        cache_key = f"today-report:{report_date}:{limit}"
         cached = self._report_cache.get(cache_key)
         if cached is not None:
             return cached
 
-        as_of = datetime.utcnow()
+        as_of = local_now
         topic_results = await asyncio.gather(
             *[self._search_topic_news(topic, limit=6) for topic in self.TOPIC_PROFILES]
         )
@@ -180,6 +183,7 @@ class MarketIntelligenceService:
             bullish_ranked, bearish_ranked, limit=limit
         )
         await self._attach_local_model_analysis([*bullish, *bearish])
+        self._finalize_recommendations([*bullish, *bearish])
 
         await self.tracker.evaluate_due_predictions(as_of)
         await self.tracker.record_market_ideas(as_of, [*bullish, *bearish], horizon_days=5)
@@ -191,13 +195,31 @@ class MarketIntelligenceService:
 
         report = {
             "asOf": as_of.isoformat(),
+            "reportDate": report_date,
+            "resetAt": next_reset(as_of).isoformat(),
             "majorStories": stories[: min(10, len(stories))],
             "topBullish": bullish,
             "topBearish": bearish,
             "scoreboard": scoreboard,
+            "summary": self._daily_summary([*bullish, *bearish], scoreboard),
             "sources": self.source_registry.provenance_for(
                 ["yahoo-finance-yfinance", "alpha-vantage", "sec-edgar", "fred-alfred"]
             ),
+            "decisionMethod": {
+                "mode": "deterministic-scoring-plus-structured-llm-review",
+                "description": (
+                    "Current-event stories and market data are scored first; the local model only evaluates "
+                    "the prepared dataset and nudges the final buy/watch/avoid action."
+                ),
+            },
+            "dataFreshness": {
+                "reportTimezone": settings.REPORT_TIMEZONE,
+                "cacheTtlSeconds": settings.MARKET_INTELLIGENCE_CACHE_TTL_SECONDS,
+                "datasetPolicy": (
+                    "Current-event stories are refreshed on demand and by the background refresher. "
+                    "Daily recommendation snapshots reset at local midnight."
+                ),
+            },
             "disclaimer": (
                 "This feed links current events to market-sensitive stocks using open data "
                 "and heuristic scoring. It is for research support, not a promise of future performance."
@@ -237,7 +259,7 @@ class MarketIntelligenceService:
             cache_key,
             {
                 "query": query,
-                "asOf": datetime.utcnow().isoformat(),
+                "asOf": report_now().isoformat(),
                 "results": stories[:limit],
                 "count": len(stories[:limit]),
             },
@@ -325,11 +347,18 @@ class MarketIntelligenceService:
         sentiment: str,
     ) -> List[Dict[str, Any]]:
         text = title.lower()
-        stock_links: List[Tuple[str, str, float]] = []
+        stock_links: List[Dict[str, Any]] = []
 
         if related_tickers:
             for symbol in related_tickers:
-                stock_links.append((symbol, "Mentioned directly in current news", 0.9))
+                stock_links.append(
+                    {
+                        "symbol": symbol,
+                        "reason": self._direct_mention_reason(topic, symbol),
+                        "score": 0.9,
+                        "specificity": 1,
+                    }
+                )
 
         if sentiment == "positive":
             bullish = topic.bullish_if_positive
@@ -342,33 +371,121 @@ class MarketIntelligenceService:
             bearish = topic.bearish_if_negative
 
         for symbol in bullish:
-            stock_links.append((symbol, f"Potential beneficiary of {topic.label.lower()}", 0.72))
+            stock_links.append(
+                {
+                    "symbol": symbol,
+                    "reason": self._topic_link_reason(topic, symbol, sentiment, "beneficiary"),
+                    "score": 0.72,
+                    "specificity": 2,
+                }
+            )
         for symbol in bearish:
-            stock_links.append((symbol, f"Potentially pressured by {topic.label.lower()}", 0.62))
+            stock_links.append(
+                {
+                    "symbol": symbol,
+                    "reason": self._topic_link_reason(topic, symbol, sentiment, "pressured"),
+                    "score": 0.62,
+                    "specificity": 2,
+                }
+            )
 
         if any(keyword in text for keyword in ["ai", "inference", "datacenter", "data center", "gpu"]):
             for exposure in self.theme_model.get_theme_map()["exposures"]:
                 if exposure["score"] >= 0.78:
                     stock_links.append(
-                        (
-                            exposure["symbol"],
-                            "High-conviction AI infrastructure exposure",
-                            float(exposure["score"]),
-                        )
+                        {
+                            "symbol": exposure["symbol"],
+                            "reason": self._theme_exposure_reason(exposure),
+                            "score": float(exposure["score"]),
+                            "specificity": 3,
+                        }
                     )
 
         deduped: Dict[str, Dict[str, Any]] = {}
-        for symbol, reason, score in stock_links:
+        for link in stock_links:
+            symbol = link["symbol"]
             previous = deduped.get(symbol)
-            if previous and previous["score"] >= score:
+            if previous is None:
+                deduped[symbol] = {
+                    "symbol": symbol,
+                    "score": round(float(link["score"]), 4),
+                    "reasonFragments": [link["reason"]],
+                    "topSpecificity": int(link["specificity"]),
+                    "reason": link["reason"],
+                }
                 continue
-            deduped[symbol] = {
-                "symbol": symbol,
-                "reason": reason,
-                "score": round(score, 4),
-            }
+
+            previous["score"] = round(max(float(previous["score"]), float(link["score"])), 4)
+            if link["reason"] not in previous["reasonFragments"]:
+                previous["reasonFragments"].append(link["reason"])
+            previous["reasonFragments"] = sorted(
+                previous["reasonFragments"],
+                key=lambda fragment: (
+                    -self._reason_specificity(previous["symbol"], fragment),
+                    fragment,
+                ),
+            )
+            previous["topSpecificity"] = max(previous["topSpecificity"], int(link["specificity"]))
+            previous["reason"] = self._compose_link_reason(previous["reasonFragments"])
 
         return sorted(deduped.values(), key=lambda item: item["score"], reverse=True)
+
+    def _direct_mention_reason(self, topic: TopicProfile, symbol: str) -> str:
+        return f"{symbol} is explicitly mentioned in current {topic.label.lower()} coverage"
+
+    def _topic_link_reason(
+        self,
+        topic: TopicProfile,
+        symbol: str,
+        sentiment: str,
+        relation: str,
+    ) -> str:
+        exposure = self._top_theme_exposure(symbol)
+        if relation == "beneficiary":
+            base = f"{symbol} screens as a likely beneficiary of {topic.label.lower()}"
+        else:
+            base = f"{symbol} screens as more exposed if {topic.label.lower()} worsens"
+
+        if exposure:
+            layer = exposure.layer.replace("-", " ")
+            driver = exposure.drivers[0] if exposure.drivers else None
+            if driver:
+                return f"{base} through its {layer} role and {driver.lower()} driver"
+            return f"{base} through its {layer} role"
+
+        if sentiment == "positive" and relation == "beneficiary":
+            return base
+        return base
+
+    def _theme_exposure_reason(self, exposure: Dict[str, Any]) -> str:
+        layer = str(exposure.get("layer") or "theme exposure").replace("-", " ")
+        drivers = exposure.get("drivers") or []
+        driver = str(drivers[0]).lower() if drivers else None
+        symbol = exposure.get("symbol") or "This stock"
+        if driver:
+            return f"{symbol} has strong AI infrastructure exposure via {layer}, tied to {driver}"
+        return f"{symbol} has strong AI infrastructure exposure via {layer}"
+
+    def _top_theme_exposure(self, symbol: str):
+        exposures = self.theme_model.get_exposures(symbol)
+        if not exposures:
+            return None
+        return max(exposures, key=lambda item: item.score)
+
+    @staticmethod
+    def _compose_link_reason(reason_fragments: List[str]) -> str:
+        if not reason_fragments:
+            return "Linked to the current market story"
+        if len(reason_fragments) == 1:
+            return reason_fragments[0]
+        return f"{reason_fragments[0]}; also {reason_fragments[1]}"
+
+    def _reason_specificity(self, symbol: str, reason: str) -> int:
+        if "strong ai infrastructure exposure" in reason.lower():
+            return 3
+        if symbol in reason and ("beneficiary" in reason.lower() or "exposed" in reason.lower()):
+            return 2
+        return 1
 
     def _accumulate_story_scores(
         self,
@@ -446,6 +563,7 @@ class MarketIntelligenceService:
             theme_bonus = max(
                 [exposure.score for exposure in self.theme_model.get_exposures(symbol)] or [0.0]
             )
+            evidence_count = len(contributions)
             valuation_bonus = self._valuation_bonus(company, direction)
             final_score = min(
                 100.0,
@@ -501,6 +619,18 @@ class MarketIntelligenceService:
                         "signalFamilies": research.coverage.get("activeSignalFamilies", [])
                         if research
                         else [],
+                        "evidenceCount": evidence_count,
+                        "nonDemoEvidenceCount": len(
+                            [
+                                card
+                                for card in getattr(research, "evidence", []) or []
+                                if getattr(card, "source_type", None) != "demo"
+                                and (
+                                    not getattr(card, "symbols", [])
+                                    or symbol in (getattr(card, "symbols", []) or [])
+                                )
+                            ]
+                        ),
                     },
                     "sourceIds": sorted(
                         {entry["sourceId"] for entry in contributions if entry.get("sourceId")}
@@ -514,6 +644,9 @@ class MarketIntelligenceService:
                         contributions=contributions,
                         research=research,
                     ),
+                    "action": "watch" if direction == "up" else "avoid",
+                    "dailyRating": "PENDING",
+                    "buyScore": None,
                 }
             )
 
@@ -544,6 +677,89 @@ class MarketIntelligenceService:
                 )
             except Exception as exc:
                 idea["localModelError"] = str(exc)
+
+    def _finalize_recommendations(self, ideas: List[Dict[str, Any]]) -> None:
+        for idea in ideas:
+            metrics = idea.get("metrics") or {}
+            model_analysis = idea.get("localModelAnalysis") or {}
+            local_verdict = model_analysis.get("verdict")
+            base_score = float(idea.get("score") or 0.0) / 100.0
+            confidence = float(idea.get("confidence") or 0.0)
+            research_prob = float(metrics.get("research21dProbability") or 0.5)
+            evidence_strength = min(1.0, float(metrics.get("nonDemoEvidenceCount") or 0) / 4.0)
+
+            llm_adjustment = 0.0
+            if local_verdict == "supports":
+                llm_adjustment = 0.08
+            elif local_verdict == "mixed":
+                llm_adjustment = -0.03
+            elif local_verdict == "contradicts":
+                llm_adjustment = -0.12
+
+            if idea.get("direction") == "up":
+                buy_score = (
+                    0.38 * base_score
+                    + 0.24 * confidence
+                    + 0.18 * research_prob
+                    + 0.12 * evidence_strength
+                    + llm_adjustment
+                )
+            else:
+                buy_score = (
+                    0.18 * (1 - base_score)
+                    + 0.18 * confidence
+                    + 0.14 * (1 - research_prob)
+                    + 0.10 * evidence_strength
+                )
+
+            buy_score = max(0.0, min(1.0, buy_score))
+            action = "avoid"
+            if idea.get("direction") == "up":
+                if buy_score >= 0.72 and local_verdict != "contradicts":
+                    action = "buy"
+                elif buy_score >= 0.55:
+                    action = "watch"
+                else:
+                    action = "avoid"
+
+            rating = self._rating_for_action(action, buy_score, local_verdict)
+            idea["buyScore"] = round(buy_score, 4)
+            idea["action"] = action
+            idea["dailyRating"] = rating
+            metrics["buyScore"] = round(buy_score, 4)
+            metrics["action"] = action
+            metrics["dailyRating"] = rating
+            idea["metrics"] = metrics
+
+    @staticmethod
+    def _rating_for_action(action: str, buy_score: float, local_verdict: Optional[str]) -> str:
+        if action == "buy":
+            if buy_score >= 0.85 and local_verdict == "supports":
+                return "A"
+            if buy_score >= 0.72:
+                return "B"
+            return "C"
+        if action == "watch":
+            return "C"
+        if local_verdict == "contradicts":
+            return "F"
+        return "D"
+
+    @staticmethod
+    def _daily_summary(
+        ideas: List[Dict[str, Any]], scoreboard: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        buys = [idea for idea in ideas if idea.get("action") == "buy"]
+        watches = [idea for idea in ideas if idea.get("action") == "watch"]
+        avoids = [idea for idea in ideas if idea.get("action") == "avoid"]
+        top_buy = max(buys, key=lambda item: item.get("buyScore") or 0.0, default=None)
+        return {
+            "buyCount": len(buys),
+            "watchCount": len(watches),
+            "avoidCount": len(avoids),
+            "trackerAccuracyPct": scoreboard.get("accuracyPct"),
+            "topBuySymbol": top_buy.get("symbol") if top_buy else None,
+        }
 
     def _build_supporting_evidence(
         self,

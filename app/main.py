@@ -2,6 +2,8 @@
 FastAPI main application module.
 """
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,6 +14,26 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routes import api_router
 from app.core.config import settings
 from app.core.database import create_tables
+from app.services.market_intelligence import MarketIntelligenceService
+
+
+logger = logging.getLogger(__name__)
+
+
+async def refresh_market_workspace_forever() -> None:
+    """Keep the daily market workspace warm so new-day snapshots appear automatically."""
+    interval_seconds = max(300, settings.MARKET_INTELLIGENCE_CACHE_TTL_SECONDS)
+    while True:
+        try:
+            async with MarketIntelligenceService() as service:
+                await service.build_today_report(limit=5)
+                await service.daily_prediction_report(days=30)
+        except asyncio.CancelledError:  # pragma: no cover - shutdown path
+            raise
+        except Exception:
+            logger.exception("Market workspace refresh failed")
+
+        await asyncio.sleep(interval_seconds)
 
 
 @asynccontextmanager
@@ -19,8 +41,18 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     await create_tables()
+    refresh_task = None
+    if settings.ENABLE_MARKET_INTELLIGENCE and settings.ENVIRONMENT != "testing":
+        refresh_task = asyncio.create_task(refresh_market_workspace_forever())
+        app.state.market_workspace_refresh_task = refresh_task
     yield
     # Shutdown - cleanup if needed
+    if refresh_task:
+        refresh_task.cancel()
+        try:
+            await refresh_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(

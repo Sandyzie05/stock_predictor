@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.daily_prediction import DailyPredictionSnapshot
 from app.services.real_data_fetcher import RealDataFetcherService
+from app.services.report_clock import next_reset, report_day, report_now
 
 
 class DailyPredictionReportService:
@@ -34,7 +35,7 @@ class DailyPredictionReportService:
         """Persist one snapshot per symbol/day so it can be checked the next day."""
         created = 0
         benchmark_price = await self._resolve_baseline_price(benchmark_symbol)
-        report_date = as_of.replace(hour=0, minute=0, second=0, microsecond=0)
+        report_date = report_day(as_of)
 
         async with AsyncSessionLocal() as session:
             for idea in ideas:
@@ -94,7 +95,7 @@ class DailyPredictionReportService:
         self, as_of: Optional[datetime] = None
     ) -> Dict[str, int]:
         """Resolve any pending snapshots whose verification window has elapsed."""
-        as_of = as_of or datetime.utcnow()
+        as_of = as_of or report_now()
         evaluated = 0
 
         close_fetcher = False
@@ -197,25 +198,11 @@ class DailyPredictionReportService:
         self, days: int = 30, as_of: Optional[datetime] = None
     ) -> Dict[str, Any]:
         """Return a daily report with recent calls, outcomes, and improvement trend."""
-        as_of = as_of or datetime.utcnow()
-        await self.evaluate_due_predictions(as_of)
-
-        cutoff = as_of.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
-            days=days
-        )
-        async with AsyncSessionLocal() as session:
-            result = await session.scalars(
-                select(DailyPredictionSnapshot)
-                .where(DailyPredictionSnapshot.report_date >= cutoff)
-                .order_by(
-                    DailyPredictionSnapshot.report_date.desc(),
-                    DailyPredictionSnapshot.created_at.desc(),
-                )
-            )
-            rows = list(result)
+        as_of = as_of or report_now()
+        rows = await self.export_rows(days=days, as_of=as_of)
 
         evaluated_rows = [row for row in rows if row.status in {"correct", "incorrect"}]
-        today_key = as_of.date().isoformat()
+        today_key = report_day(as_of).date().isoformat()
         today_predictions = [
             self._to_api(row)
             for row in rows
@@ -230,6 +217,8 @@ class DailyPredictionReportService:
 
         return {
             "asOf": as_of.isoformat(),
+            "reportDate": today_key,
+            "resetAt": next_reset(as_of).isoformat(),
             "windowDays": days,
             "overall": overall,
             "trend": trend,
@@ -237,12 +226,14 @@ class DailyPredictionReportService:
             "todayPredictions": today_predictions,
             "recentEvaluations": recent_evaluations,
             "dailyBreakdown": daily_breakdown,
+            "exportColumns": self.export_columns(),
             "localModelPlan": {
                 "enabled": settings.ENABLE_LOCAL_LLM,
                 "provider": getattr(settings, "LOCAL_LLM_PROVIDER", None) or "planned",
                 "baseUrl": settings.LOCAL_LLM_BASE_URL,
                 "model": settings.LOCAL_LLM_MODEL,
                 "embeddingModel": getattr(settings, "LOCAL_LLM_EMBEDDING_MODEL", None),
+                "reportTimezone": settings.REPORT_TIMEZONE,
                 "workflow": [
                     "retrieve fresh evidence from market, news, filing, and macro sources",
                     "rank and filter evidence before prompting the local model",
@@ -251,6 +242,25 @@ class DailyPredictionReportService:
                 ],
             },
         }
+
+    async def export_rows(
+        self, days: int = 30, as_of: Optional[datetime] = None
+    ) -> List[DailyPredictionSnapshot]:
+        """Return all stored rows for the requested reporting window."""
+        as_of = as_of or report_now()
+        await self.evaluate_due_predictions(as_of)
+
+        cutoff = report_day(as_of) - timedelta(days=days)
+        async with AsyncSessionLocal() as session:
+            result = await session.scalars(
+                select(DailyPredictionSnapshot)
+                .where(DailyPredictionSnapshot.report_date >= cutoff)
+                .order_by(
+                    DailyPredictionSnapshot.report_date.desc(),
+                    DailyPredictionSnapshot.created_at.desc(),
+                )
+            )
+            return list(result)
 
     async def _resolve_baseline_price(self, symbol: str) -> Optional[Decimal]:
         close_fetcher = False
@@ -319,6 +329,7 @@ class DailyPredictionReportService:
             "averageReturnPct": avg_return,
             "averageBenchmarkReturnPct": avg_benchmark,
             "averageExcessReturnPct": avg_excess,
+            "systemRating": self._score_to_rating(accuracy, avg_excess),
         }
 
     def _daily_breakdown(
@@ -343,6 +354,10 @@ class DailyPredictionReportService:
                     else None,
                     "averageExcessReturnPct": self._average_decimal(
                         row.excess_return_pct for row in evaluated
+                    ),
+                    "rating": self._score_to_rating(
+                        round((correct / len(evaluated)) * 100, 2) if evaluated else None,
+                        self._average_decimal(row.excess_return_pct for row in evaluated),
                     ),
                 }
             )
@@ -379,6 +394,8 @@ class DailyPredictionReportService:
             "priorAccuracyPct": prior_accuracy,
             "recentAverageExcessReturnPct": recent_excess,
             "priorAverageExcessReturnPct": prior_excess,
+            "recentRating": self._score_to_rating(recent_accuracy, recent_excess),
+            "priorRating": self._score_to_rating(prior_accuracy, prior_excess),
         }
 
     def _narrative(self, overall: Dict[str, Any], trend: Dict[str, Any]) -> List[str]:
@@ -441,6 +458,11 @@ class DailyPredictionReportService:
             if row.local_model_json
             else None,
             "localModelError": row.local_model_error,
+            "action": self._extract_metric(row, "action"),
+            "dailyRating": self._extract_metric(row, "dailyRating"),
+            "buyScore": self._extract_metric(row, "buyScore"),
+            "evidenceCount": self._extract_metric(row, "evidenceCount"),
+            "nonDemoEvidenceCount": self._extract_metric(row, "nonDemoEvidenceCount"),
             "evaluatedAt": row.evaluated_at.isoformat() if row.evaluated_at else None,
             "evaluationPrice": float(row.evaluation_price)
             if row.evaluation_price is not None
@@ -459,6 +481,46 @@ class DailyPredictionReportService:
             else None,
             "evaluationNotes": row.evaluation_notes,
             "createdAt": row.created_at.isoformat(),
+        }
+
+    def export_row_to_flat_dict(self, row: DailyPredictionSnapshot) -> Dict[str, Any]:
+        """Flatten one row into spreadsheet-friendly columns."""
+        item = self._to_api(row)
+        local_model = item.get("localModelAnalysis") or {}
+        evidence = item.get("supportingEvidence") or []
+        return {
+            "report_date": item["reportDate"],
+            "symbol": item["symbol"],
+            "company_name": item["companyName"],
+            "action": item.get("action"),
+            "daily_rating": item.get("dailyRating"),
+            "buy_score": item.get("buyScore"),
+            "direction": item["direction"],
+            "topic": item["topic"],
+            "catalyst": item["catalyst"],
+            "confidence_score": item["confidenceScore"],
+            "conviction_score": item["convictionScore"],
+            "baseline_price": item["baselinePrice"],
+            "evaluation_price": item.get("evaluationPrice"),
+            "realized_return_pct": item.get("realizedReturnPct"),
+            "benchmark_symbol": item["benchmarkSymbol"],
+            "benchmark_return_pct": item.get("benchmarkReturnPct"),
+            "excess_return_pct": item.get("excessReturnPct"),
+            "status": item["status"],
+            "model_version": item.get("modelVersion"),
+            "local_model_verdict": local_model.get("verdict"),
+            "local_model_summary": local_model.get("thesisSummary"),
+            "local_model_confidence_adjustment": local_model.get(
+                "confidenceAdjustment"
+            ),
+            "source_ids": "|".join(item.get("sourceIds") or []),
+            "evidence_urls": "|".join(
+                evidence_item.get("url") or ""
+                for evidence_item in evidence
+                if evidence_item.get("url")
+            ),
+            "reasoning": " ".join(item.get("reasoning") or []),
+            "evaluation_notes": item.get("evaluationNotes"),
         }
 
     @staticmethod
@@ -487,6 +549,58 @@ class DailyPredictionReportService:
             f"{base} Benchmark moved {float(benchmark_return):.2f}%, "
             f"so excess return was {float(excess_return):.2f}%."
         )
+
+    @staticmethod
+    def _extract_metric(row: DailyPredictionSnapshot, key: str) -> Any:
+        metrics = json.loads(row.metrics_json or "{}")
+        return metrics.get(key)
+
+    @staticmethod
+    def _score_to_rating(
+        accuracy_pct: Optional[float], excess_return_pct: Optional[float]
+    ) -> str:
+        if accuracy_pct is None:
+            return "PENDING"
+        if accuracy_pct >= 70 and (excess_return_pct is None or excess_return_pct >= 0.5):
+            return "A"
+        if accuracy_pct >= 60 and (excess_return_pct is None or excess_return_pct >= 0):
+            return "B"
+        if accuracy_pct >= 50:
+            return "C"
+        if accuracy_pct >= 40:
+            return "D"
+        return "F"
+
+    @staticmethod
+    def export_columns() -> List[str]:
+        return [
+            "report_date",
+            "symbol",
+            "company_name",
+            "action",
+            "daily_rating",
+            "buy_score",
+            "direction",
+            "topic",
+            "catalyst",
+            "confidence_score",
+            "conviction_score",
+            "baseline_price",
+            "evaluation_price",
+            "realized_return_pct",
+            "benchmark_symbol",
+            "benchmark_return_pct",
+            "excess_return_pct",
+            "status",
+            "model_version",
+            "local_model_verdict",
+            "local_model_summary",
+            "local_model_confidence_adjustment",
+            "source_ids",
+            "evidence_urls",
+            "reasoning",
+            "evaluation_notes",
+        ]
 
     @staticmethod
     def _accuracy_for(rows: List[DailyPredictionSnapshot]) -> Optional[float]:

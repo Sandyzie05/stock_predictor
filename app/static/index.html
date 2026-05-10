@@ -3,428 +3,1124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock Predictor - Investment Intelligence</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <title>Stock Predictor Workspace</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
     <style>
         :root {
-            --primary-color: #2c3e50;
-            --success-color: #27ae60;
-            --danger-color: #e74c3c;
-            --warning-color: #f39c12;
-            --info-color: #3498db;
+            color-scheme: dark;
+            --bg: #0a0f18;
+            --bg-elevated: #111827;
+            --bg-muted: #0f172a;
+            --panel: #121a28;
+            --panel-strong: #182235;
+            --line: rgba(148, 163, 184, 0.18);
+            --line-strong: rgba(148, 163, 184, 0.28);
+            --text: #ecf2ff;
+            --text-muted: #8ea0bf;
+            --text-soft: #a9b8d2;
+            --accent: #67e8f9;
+            --accent-strong: #22d3ee;
+            --green: #34d399;
+            --yellow: #fbbf24;
+            --red: #f87171;
+            --blue: #60a5fa;
+            --purple: #a78bfa;
+            --shadow: 0 24px 60px rgba(2, 6, 23, 0.42);
+            --radius: 18px;
+            --radius-sm: 12px;
+            --max-width: 1600px;
         }
 
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            min-height: 100%;
+            background:
+                radial-gradient(circle at top left, rgba(34, 211, 238, 0.08), transparent 28%),
+                radial-gradient(circle at top right, rgba(96, 165, 250, 0.08), transparent 24%),
+                linear-gradient(180deg, #0a0f18 0%, #09111c 45%, #07111b 100%);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        a:hover {
+            color: #a5f3fc;
+        }
+
+        button,
+        input {
+            font: inherit;
+        }
+
+        .shell {
             min-height: 100vh;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        .navbar {
-            background: rgba(255, 255, 255, 0.95) !important;
-            backdrop-filter: blur(10px);
-            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            backdrop-filter: blur(18px);
+            background: rgba(7, 17, 27, 0.82);
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
         }
 
-        .card {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border: none;
-            border-radius: 15px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        .topbar-inner,
+        .workspace {
+            width: min(calc(100vw - 32px), var(--max-width));
+            margin: 0 auto;
         }
 
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+        .topbar-inner {
+            min-height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
         }
 
-        .stock-card {
-            margin-bottom: 20px;
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
+        }
+
+        .brand-mark {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, rgba(34, 211, 238, 0.22), rgba(96, 165, 250, 0.2));
+            color: var(--accent);
+            border: 1px solid rgba(103, 232, 249, 0.16);
+        }
+
+        .brand-copy strong {
+            display: block;
+            font-size: 0.98rem;
+            line-height: 1.1;
+        }
+
+        .brand-copy span {
+            display: block;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            margin-top: 4px;
+        }
+
+        .topbar-meta {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .status-chip,
+        .ghost-chip,
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            height: 36px;
+            padding: 0 12px;
+            border-radius: 999px;
+            font-size: 0.84rem;
+            white-space: nowrap;
+            border: 1px solid var(--line);
+            background: rgba(15, 23, 42, 0.72);
+            color: var(--text-soft);
+        }
+
+        .pill {
+            height: 32px;
+            padding: 0 10px;
+            font-size: 0.78rem;
+            background: rgba(24, 34, 53, 0.82);
+        }
+
+        .pill.success,
+        .status-chip.success {
+            color: #d1fae5;
+            border-color: rgba(52, 211, 153, 0.28);
+            background: rgba(6, 78, 59, 0.25);
+        }
+
+        .pill.warning,
+        .status-chip.warning {
+            color: #fef3c7;
+            border-color: rgba(251, 191, 36, 0.24);
+            background: rgba(120, 53, 15, 0.24);
+        }
+
+        .pill.danger,
+        .status-chip.danger {
+            color: #fee2e2;
+            border-color: rgba(248, 113, 113, 0.24);
+            background: rgba(127, 29, 29, 0.24);
+        }
+
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .button {
+            height: 42px;
+            padding: 0 16px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: rgba(17, 24, 39, 0.92);
+            color: var(--text);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
             cursor: pointer;
+            transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
         }
 
-        .recommendation-buy { border-left: 5px solid var(--success-color); }
-        .recommendation-sell { border-left: 5px solid var(--danger-color); }
-        .recommendation-hold { border-left: 5px solid var(--warning-color); }
-
-        .metric-box {
-            text-align: center;
-            padding: 15px;
-            margin: 10px 0;
-            background: linear-gradient(45deg, #f8f9fa, #e9ecef);
-            border-radius: 10px;
+        .button:hover {
+            border-color: rgba(103, 232, 249, 0.32);
+            background: rgba(21, 31, 49, 0.96);
+            transform: translateY(-1px);
         }
 
-        .loading {
-            text-align: center;
-            padding: 40px;
+        .button.primary {
+            background: linear-gradient(135deg, rgba(34, 211, 238, 0.18), rgba(96, 165, 250, 0.18));
+            border-color: rgba(103, 232, 249, 0.28);
         }
 
-        .spinner-border {
-            color: var(--primary-color);
+        .button.small {
+            height: 36px;
+            padding: 0 12px;
+            font-size: 0.84rem;
         }
 
-        .search-section {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 30px;
-            backdrop-filter: blur(10px);
+        .button:disabled {
+            opacity: 0.6;
+            cursor: progress;
+            transform: none;
         }
 
-        .list-tabs {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 15px;
+        .workspace {
+            padding: 28px 0 48px;
+        }
+
+        .hero-band,
+        .section-band {
+            padding: 24px 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.8fr) minmax(320px, 1fr);
+            gap: 22px;
+            align-items: stretch;
+        }
+
+        .hero-copy h1 {
+            margin: 0;
+            font-size: clamp(2rem, 3vw, 3.2rem);
+            line-height: 1.02;
+            max-width: 10ch;
+        }
+
+        .hero-copy p {
+            max-width: 64ch;
+            margin: 16px 0 0;
+            color: var(--text-soft);
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+
+        .hero-meta {
+            margin-top: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .hero-panel,
+        .panel {
+            background: linear-gradient(180deg, rgba(18, 26, 40, 0.96), rgba(12, 19, 32, 0.96));
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+        }
+
+        .hero-panel {
             padding: 20px;
-            margin-bottom: 30px;
+            display: grid;
+            gap: 14px;
+            align-content: start;
         }
 
-        .workspace-section {
-            background: rgba(255, 255, 255, 0.08);
-            border-radius: 18px;
-            padding: 24px;
-            margin-top: 32px;
-            backdrop-filter: blur(12px);
+        .panel {
+            padding: 18px;
         }
 
-        .workspace-heading {
-            color: #fff;
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        .panel-header h2,
+        .panel-header h3 {
+            margin: 0;
+            font-size: 1rem;
+            line-height: 1.2;
+        }
+
+        .panel-header p,
+        .section-kicker,
+        .panel-subcopy,
+        .microcopy {
+            margin: 6px 0 0;
+            color: var(--text-muted);
+            font-size: 0.86rem;
+            line-height: 1.5;
+        }
+
+        .section-band h2 {
+            margin: 0 0 8px;
+            font-size: 1.1rem;
+        }
+
+        .section-band > .section-heading {
             margin-bottom: 18px;
         }
 
-        .workspace-subcopy {
-            color: rgba(255, 255, 255, 0.82);
-            margin-bottom: 0;
-        }
-
-        .story-list,
-        .idea-list {
+        .section-grid {
             display: grid;
-            gap: 14px;
+            gap: 18px;
         }
 
-        .surface {
-            background: rgba(255, 255, 255, 0.92);
-            border-radius: 14px;
+        .overview-grid {
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+
+        .metric-panel {
             padding: 16px 18px;
-            box-shadow: 0 6px 24px rgba(0,0,0,0.08);
-        }
-
-        .surface h6 {
-            margin-bottom: 6px;
-        }
-
-        .surface small {
-            color: #6c757d;
-        }
-
-        .pill-row {
+            min-height: 126px;
             display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .metric-label {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        .metric-value {
+            font-size: clamp(1.5rem, 2vw, 2rem);
+            font-weight: 700;
+            line-height: 1;
+            margin-top: 12px;
+        }
+
+        .metric-detail {
+            color: var(--text-soft);
+            font-size: 0.84rem;
             margin-top: 10px;
         }
 
-        .story-pill {
-            background: rgba(44, 62, 80, 0.08);
-            color: var(--primary-color);
-            padding: 6px 10px;
-            border-radius: 999px;
+        .recommendations-grid {
+            grid-template-columns: minmax(0, 1.75fr) minmax(330px, 1fr);
+        }
+
+        .table-wrap {
+            overflow: auto;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: rgba(8, 13, 23, 0.58);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 880px;
+        }
+
+        th,
+        td {
+            padding: 14px 16px;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+            font-size: 0.9rem;
+        }
+
+        th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: rgba(17, 24, 39, 0.98);
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.76rem;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        tbody tr {
+            cursor: pointer;
+            transition: background 120ms ease;
+        }
+
+        tbody tr:hover {
+            background: rgba(24, 34, 53, 0.58);
+        }
+
+        .symbol-cell strong {
+            display: block;
+            font-size: 0.95rem;
+        }
+
+        .symbol-cell span,
+        .subtle {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+        }
+
+        .stack {
+            display: grid;
+            gap: 12px;
+        }
+
+        .mini-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .idea-card,
+        .story-item,
+        .evaluation-item,
+        .status-row,
+        .analysis-grid > div {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: rgba(8, 13, 23, 0.58);
+        }
+
+        .idea-card,
+        .story-item,
+        .evaluation-item,
+        .status-row {
+            padding: 14px 16px;
+        }
+
+        .idea-card-head,
+        .story-head,
+        .status-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .idea-card small,
+        .story-item small {
+            color: var(--text-muted);
+        }
+
+        .evidence-list {
+            margin-top: 10px;
+            display: grid;
+            gap: 6px;
+        }
+
+        .evidence-list a {
+            font-size: 0.84rem;
+        }
+
+        .tracker-grid {
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        }
+
+        .narrative-list,
+        .bullet-list {
+            margin: 0;
+            padding-left: 18px;
+            color: var(--text-soft);
+            line-height: 1.6;
+        }
+
+        .breakdown-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .breakdown-row {
+            display: grid;
+            grid-template-columns: minmax(110px, 130px) repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            align-items: center;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: rgba(8, 13, 23, 0.58);
+            font-size: 0.88rem;
+        }
+
+        .search-bar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+        }
+
+        .search-input,
+        .news-input {
+            width: 100%;
+            height: 48px;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: rgba(8, 13, 23, 0.76);
+            color: var(--text);
+            padding: 0 16px;
+            outline: none;
+        }
+
+        .search-input:focus,
+        .news-input:focus {
+            border-color: rgba(103, 232, 249, 0.3);
+            box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.08);
+        }
+
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .analysis-grid > div {
+            padding: 14px 16px;
+        }
+
+        .analysis-grid span {
+            display: block;
+            color: var(--text-muted);
             font-size: 0.8rem;
+            margin-bottom: 10px;
         }
 
-        .nav-pills .nav-link {
-            color: #fff;
-            background: rgba(255, 255, 255, 0.2);
-            margin: 0 5px;
-            border-radius: 25px;
+        .analysis-grid strong {
+            font-size: 1.12rem;
         }
 
-        .nav-pills .nav-link.active {
-            background: var(--primary-color);
+        .analysis-summary {
+            margin-top: 14px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            background: rgba(8, 13, 23, 0.58);
+            color: var(--text-soft);
+            line-height: 1.65;
         }
 
-        .hero-section {
-            text-align: center;
-            color: white;
-            padding: 40px 0;
+        .tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
         }
 
-        .price-positive { color: var(--success-color); font-weight: bold; }
-        .price-negative { color: var(--danger-color); font-weight: bold; }
-        .price-neutral { color: var(--warning-color); font-weight: bold; }
+        .tab {
+            height: 38px;
+            padding: 0 14px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(8, 13, 23, 0.58);
+            color: var(--text-soft);
+            cursor: pointer;
+        }
 
-        .confidence-high { background: linear-gradient(45deg, #27ae60, #2ecc71); }
-        .confidence-medium { background: linear-gradient(45deg, #f39c12, #e67e22); }
-        .confidence-low { background: linear-gradient(45deg, #e74c3c, #c0392b); }
+        .tab.active {
+            color: var(--text);
+            border-color: rgba(103, 232, 249, 0.3);
+            background: rgba(23, 37, 56, 0.92);
+        }
+
+        .screen-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+            gap: 18px;
+        }
+
+        .status-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .status-row {
+            align-items: center;
+        }
+
+        .empty-state,
+        .loading-state {
+            padding: 20px;
+            border: 1px dashed var(--line-strong);
+            border-radius: 14px;
+            color: var(--text-muted);
+            background: rgba(8, 13, 23, 0.44);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 38px;
+            height: 28px;
+            padding: 0 10px;
+            border-radius: 999px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+        }
+
+        .badge.buy,
+        .badge.A,
+        .badge.B,
+        .badge.up,
+        .badge.correct {
+            background: rgba(6, 78, 59, 0.26);
+            border-color: rgba(52, 211, 153, 0.24);
+            color: #d1fae5;
+        }
+
+        .badge.watch,
+        .badge.C,
+        .badge.mixed,
+        .badge.pending {
+            background: rgba(120, 53, 15, 0.24);
+            border-color: rgba(251, 191, 36, 0.24);
+            color: #fef3c7;
+        }
+
+        .badge.avoid,
+        .badge.D,
+        .badge.F,
+        .badge.down,
+        .badge.incorrect,
+        .badge.contradicts {
+            background: rgba(127, 29, 29, 0.26);
+            border-color: rgba(248, 113, 113, 0.22);
+            color: #fee2e2;
+        }
+
+        .badge.supports {
+            background: rgba(8, 47, 73, 0.44);
+            border-color: rgba(34, 211, 238, 0.24);
+            color: #cffafe;
+        }
+
+        .badge.neutral,
+        .badge.idle,
+        .badge.stable,
+        .badge.PENDING {
+            background: rgba(30, 41, 59, 0.9);
+            border-color: rgba(148, 163, 184, 0.18);
+            color: #cbd5e1;
+        }
+
+        .positive {
+            color: var(--green);
+        }
+
+        .negative {
+            color: var(--red);
+        }
+
+        .muted {
+            color: var(--text-muted);
+        }
+
+        .mono {
+            font-variant-numeric: tabular-nums;
+        }
+
+        @media (max-width: 1180px) {
+            .hero-grid,
+            .recommendations-grid,
+            .tracker-grid,
+            .screen-grid,
+            .overview-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .overview-grid {
+                gap: 14px;
+            }
+        }
+
+        @media (max-width: 840px) {
+            .topbar-inner {
+                min-height: auto;
+                padding: 14px 0;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .topbar-meta,
+            .topbar-actions {
+                justify-content: flex-start;
+            }
+
+            .workspace {
+                width: min(calc(100vw - 24px), var(--max-width));
+                padding-top: 18px;
+            }
+
+            .analysis-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .breakdown-row {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .hero-copy h1 {
+                max-width: none;
+            }
+
+            .analysis-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .search-bar {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar navbar-expand-lg navbar-light sticky-top">
-        <div class="container">
-            <a class="navbar-brand fw-bold" href="#">
-                <i class="fas fa-chart-line text-primary"></i> Stock Predictor
-            </a>
-            <div class="navbar-nav ms-auto">
-                <span class="nav-link">
-                    <i class="fas fa-circle text-success"></i> Live Data
-                </span>
-            </div>
-        </div>
-    </nav>
-
-    <div class="container my-4">
-        <!-- Hero Section -->
-        <div class="hero-section">
-            <h1 class="display-4 fw-bold mb-3">
-                <i class="fas fa-brain"></i> AI-Powered Investment Intelligence
-            </h1>
-            <p class="lead">Real-time stock analysis, ML predictions, and smart investment recommendations</p>
-        </div>
-
-        <!-- Stock Search Section -->
-        <div class="search-section">
-            <div class="row align-items-center">
-                <div class="col-md-8">
-                    <div class="input-group input-group-lg">
-                        <span class="input-group-text">
-                            <i class="fas fa-search"></i>
-                        </span>
-                        <input type="text" class="form-control" id="stockSearch" 
-                               placeholder="Enter stock symbol (e.g., AAPL, GOOGL, TSLA...)" 
-                               onkeypress="handleSearchKeypress(event)">
+    <div class="shell">
+        <header class="topbar">
+            <div class="topbar-inner">
+                <div class="brand">
+                    <div class="brand-mark">
+                        <i class="fa-solid fa-chart-line"></i>
+                    </div>
+                    <div class="brand-copy">
+                        <strong>Stock Predictor Workspace</strong>
+                        <span>Deterministic event scoring with local-model review</span>
                     </div>
                 </div>
-                <div class="col-md-4">
-                    <button class="btn btn-primary btn-lg w-100" onclick="searchStock()">
-                        <i class="fas fa-chart-bar"></i> Analyze Stock
+
+                <div class="topbar-meta">
+                    <span class="status-chip" id="systemRatingBadge">System rating: --</span>
+                    <span class="status-chip" id="resetAtBadge">Reset: --</span>
+                    <span class="status-chip" id="marketIntelTimestamp">Refreshing data...</span>
+                </div>
+
+                <div class="topbar-actions">
+                    <a class="button small" id="dailyExportLink" href="/api/v1/market/predictions/daily-report.csv?days=30" target="_blank" rel="noopener noreferrer">
+                        <i class="fa-solid fa-file-arrow-down"></i>
+                        Export CSV
+                    </a>
+                    <button class="button primary" id="refreshWorkspaceButton" type="button" onclick="refreshWorkspace()">
+                        <i class="fa-solid fa-rotate-right"></i>
+                        Refresh workspace
                     </button>
                 </div>
             </div>
-        </div>
+        </header>
 
-        <!-- Stock Analysis Result -->
-        <div id="stockAnalysis" style="display: none;">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-chart-line"></i> Stock Analysis: <span id="analysisSymbol"></span>
-                    </h5>
+        <main class="workspace">
+            <section class="hero-band">
+                <div class="hero-grid">
+                    <div class="hero-copy">
+                        <h1>Daily recommendation loop built for evidence, not vibes.</h1>
+                        <p>
+                            We score live market stories and research signals first, hand that structured dataset to the local Ollama model for a constrained review, then track whether the call actually worked the next session. The workspace resets at local midnight and keeps every recommendation exportable.
+                        </p>
+                        <div class="hero-meta">
+                            <span class="pill" id="reportDatePill">Report date: --</span>
+                            <span class="pill" id="decisionModePill">Method: loading</span>
+                            <span class="pill" id="topBuyPill">Top buy: --</span>
+                        </div>
+                    </div>
+
+                    <aside class="hero-panel">
+                        <div>
+                            <div class="metric-label">Daily system score</div>
+                            <div class="metric-value mono" id="heroSystemRating">--</div>
+                            <div class="metric-detail" id="heroSystemDetail">Waiting for report data.</div>
+                        </div>
+                        <div>
+                            <div class="metric-label">Current tracker trend</div>
+                            <div class="metric-value mono" id="heroTrendStatus">--</div>
+                            <div class="metric-detail" id="heroTrendDetail">Loading recent evaluations.</div>
+                        </div>
+                        <div>
+                            <div class="metric-label">Data freshness policy</div>
+                            <div class="metric-detail" id="dataFreshnessPolicy">Current-event datasets refresh from the live services and roll to a new report date at 12 AM.</div>
+                        </div>
+                    </aside>
                 </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-3">
-                            <div class="metric-box">
-                                <h6 class="text-muted">Current Price</h6>
-                                <h4 id="currentPrice">--</h4>
+            </section>
+
+            <section class="section-band">
+                <div class="section-heading">
+                    <h2>Daily operating picture</h2>
+                    <div class="section-kicker">The top-line recommendation counts, validation quality, and the next checkpoint at a glance.</div>
+                </div>
+                <div class="section-grid overview-grid">
+                    <div class="panel metric-panel">
+                        <div class="metric-label">Buy calls</div>
+                        <div class="metric-value mono" id="statBuyCount">--</div>
+                        <div class="metric-detail" id="statBuyDetail">Loading ranked ideas.</div>
+                    </div>
+                    <div class="panel metric-panel">
+                        <div class="metric-label">Watch list</div>
+                        <div class="metric-value mono" id="statWatchCount">--</div>
+                        <div class="metric-detail" id="statWatchDetail">Waiting for current report.</div>
+                    </div>
+                    <div class="panel metric-panel">
+                        <div class="metric-label">Avoid calls</div>
+                        <div class="metric-value mono" id="statAvoidCount">--</div>
+                        <div class="metric-detail" id="statAvoidDetail">Waiting for current report.</div>
+                    </div>
+                    <div class="panel metric-panel">
+                        <div class="metric-label">Next-day accuracy</div>
+                        <div class="metric-value mono" id="statAccuracy">--</div>
+                        <div class="metric-detail" id="statAccuracyDetail">Settles once evaluated rows are available.</div>
+                    </div>
+                    <div class="panel metric-panel">
+                        <div class="metric-label">Average excess return</div>
+                        <div class="metric-value mono" id="statExcessReturn">--</div>
+                        <div class="metric-detail" id="statExcessDetail">Benchmark-relative performance across evaluated calls.</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section-band">
+                <div class="section-heading">
+                    <h2>Today&apos;s recommendations</h2>
+                    <div class="section-kicker">Deterministic score first, local-model verdict second, buy or avoid decision last.</div>
+                </div>
+                <div class="section-grid recommendations-grid">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <h3>Ranked recommendation table</h3>
+                                <p class="panel-subcopy">Every row can be opened for a quote-and-recommendation drilldown.</p>
+                            </div>
+                            <span class="pill" id="tableSummaryPill">Waiting for report</span>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Stock</th>
+                                        <th>Action</th>
+                                        <th>Rating</th>
+                                        <th>Buy score</th>
+                                        <th>Direction</th>
+                                        <th>Confidence</th>
+                                        <th>Price</th>
+                                        <th>Evidence</th>
+                                        <th>Local model</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recommendationRows">
+                                    <tr>
+                                        <td colspan="9" class="muted">Loading the recommendation set...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="stack">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Decision method</h3>
+                                    <p class="panel-subcopy">How we keep the system deterministic.</p>
+                                </div>
+                            </div>
+                            <div class="stack">
+                                <div class="microcopy" id="decisionMethodDescription">Loading decision workflow...</div>
+                                <ul class="bullet-list" id="decisionWorkflowList">
+                                    <li>Loading workflow...</li>
+                                </ul>
                             </div>
                         </div>
-                        <div class="col-md-3">
-                            <div class="metric-box">
-                                <h6 class="text-muted">Recommendation</h6>
-                                <h4 id="recommendation">--</h4>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Top bullish set</h3>
+                                    <p class="panel-subcopy">Highest-scoring long ideas for today.</p>
+                                </div>
+                            </div>
+                            <div id="topBullishIdeas" class="mini-list">
+                                <div class="empty-state">Loading bullish ideas...</div>
                             </div>
                         </div>
-                        <div class="col-md-3">
-                            <div class="metric-box">
-                                <h6 class="text-muted">Confidence</h6>
-                                <h4 id="confidence">--</h4>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Top bearish set</h3>
+                                    <p class="panel-subcopy">Names the engine wants us to leave alone.</p>
+                                </div>
+                            </div>
+                            <div id="topBearishIdeas" class="mini-list">
+                                <div class="empty-state">Loading bearish ideas...</div>
                             </div>
                         </div>
-                        <div class="col-md-3">
-                            <div class="metric-box">
-                                <h6 class="text-muted">Target Price</h6>
-                                <h4 id="targetPrice">--</h4>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section-band">
+                <div class="section-heading">
+                    <h2>Validation and report quality</h2>
+                    <div class="section-kicker">This is the part that tells us whether the system is improving or just sounding confident.</div>
+                </div>
+                <div class="section-grid tracker-grid">
+                    <div class="stack">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Daily report narrative</h3>
+                                    <p class="panel-subcopy">Human-readable summary for your daily review.</p>
+                                </div>
+                            </div>
+                            <ul class="narrative-list" id="dailyNarrative">
+                                <li>Loading report narrative...</li>
+                            </ul>
+                        </div>
+
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Recent evaluations</h3>
+                                    <p class="panel-subcopy">Whether the stored calls actually worked the next day.</p>
+                                </div>
+                                <span class="pill" id="predictionAccuracyBadge">Pending</span>
+                            </div>
+                            <div id="recentEvaluations" class="stack">
+                                <div class="empty-state">Loading recent evaluations...</div>
                             </div>
                         </div>
                     </div>
-                    <div class="mt-3">
-                        <h6>Analysis Summary:</h6>
-                        <div id="analysisSummary" class="alert alert-info"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Stock Lists Section -->
-        <div class="list-tabs">
-            <ul class="nav nav-pills justify-content-center mb-4" id="listTabs">
-                <li class="nav-item">
-                    <button class="nav-link active" data-list="all-time-high">
-                        <i class="fas fa-arrow-trend-up"></i> All-Time Highs
-                    </button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link" data-list="undervalued">
-                        <i class="fas fa-gem"></i> Undervalued
-                    </button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link" data-list="sp500">
-                        <i class="fas fa-star"></i> S&P 500
-                    </button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link" data-list="strong-buy">
-                        <i class="fas fa-thumbs-up"></i> Strong Buy
-                    </button>
-                </li>
-                <li class="nav-item">
-                    <button class="nav-link" data-list="overvalued">
-                        <i class="fas fa-exclamation-triangle"></i> Overvalued
-                    </button>
-                </li>
-            </ul>
-        </div>
+                    <div class="stack">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Daily breakdown</h3>
+                                    <p class="panel-subcopy">A rating row per report date so you can pull and compare it externally.</p>
+                                </div>
+                            </div>
+                            <div id="dailyBreakdown" class="breakdown-grid">
+                                <div class="empty-state">Loading report breakdown...</div>
+                            </div>
+                        </div>
 
-        <!-- Stock Lists Display -->
-        <div id="stockLists">
-            <div class="loading">
-                <div class="spinner-border" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Prediction tracker</h3>
+                                    <p class="panel-subcopy">Short-horizon audit feed.</p>
+                                </div>
+                            </div>
+                            <div id="predictionScoreboard" class="stack">
+                                <div class="empty-state">Loading tracker history...</div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <p class="mt-3">Loading stock data...</p>
-            </div>
-        </div>
+            </section>
 
-        <!-- Market Intelligence Workspace -->
-        <section class="workspace-section">
-            <div class="row align-items-end g-3 mb-4">
-                <div class="col-lg-8">
-                    <div class="workspace-heading">
-                        <h3 class="fw-bold mb-2">Market Intelligence Today</h3>
-                        <p class="workspace-subcopy">Live event-linked research across macro, technology, geopolitics, energy, cybersecurity, and sector rotation.</p>
+            <section class="section-band">
+                <div class="section-heading">
+                    <h2>Events and dataset context</h2>
+                    <div class="section-kicker">The market stories that fed the recommendation engine, plus a live news search surface.</div>
+                </div>
+                <div class="section-grid tracker-grid">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <h3>Major market stories</h3>
+                                <p class="panel-subcopy">Event linkage is explicit, so you can inspect what moved the score.</p>
+                            </div>
+                        </div>
+                        <div id="majorStories" class="stack">
+                            <div class="empty-state">Loading story flow...</div>
+                        </div>
                     </div>
-                </div>
-                <div class="col-lg-4">
-                    <button class="btn btn-dark w-100" onclick="loadMarketIntelligence()">
-                        <i class="fas fa-rotate-right"></i> Refresh Intelligence
-                    </button>
-                </div>
-            </div>
 
-            <div class="row g-3 mb-4">
-                <div class="col-lg-8">
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="fas fa-newspaper"></i></span>
-                        <input type="text" class="form-control" id="newsSearchQuery"
-                               placeholder="Search financial or technology news (e.g. semiconductor tariffs, datacenter capex, fed inflation)"
-                               onkeypress="handleNewsSearchKeypress(event)">
-                        <button class="btn btn-outline-light" onclick="searchMarketNews()">
-                            Search News
-                        </button>
+                    <div class="stack">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Search current event coverage</h3>
+                                    <p class="panel-subcopy">Use this to inspect what the engine would ingest for a theme or headline.</p>
+                                </div>
+                            </div>
+                            <div class="search-bar">
+                                <input
+                                    class="news-input"
+                                    id="newsSearchQuery"
+                                    type="text"
+                                    placeholder="Search topics like datacenter capex, export controls, or fed inflation"
+                                    onkeypress="handleNewsSearchKeypress(event)"
+                                >
+                                <button class="button" type="button" onclick="searchMarketNews()">
+                                    <i class="fa-solid fa-magnifying-glass"></i>
+                                    Search news
+                                </button>
+                            </div>
+                            <div id="newsSearchResults" class="stack" style="margin-top: 16px;">
+                                <div class="empty-state">Run a search to inspect live event coverage.</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div class="col-lg-4 text-lg-end text-white">
-                    <small id="marketIntelTimestamp">Refreshing...</small>
-                </div>
-            </div>
+            </section>
 
-            <div class="row g-4">
-                <div class="col-xl-4">
-                    <div class="surface">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0">Top 5 Bullish</h5>
-                            <span class="badge bg-success">Up</span>
-                        </div>
-                        <div id="topBullishIdeas" class="idea-list">
-                            <div class="text-muted">Loading current bullish ideas...</div>
-                        </div>
-                    </div>
+            <section class="section-band">
+                <div class="section-heading">
+                    <h2>Drilldown and monitoring</h2>
+                    <div class="section-kicker">Search an individual stock, review the old list-based screens, and keep an eye on service health.</div>
                 </div>
-                <div class="col-xl-4">
-                    <div class="surface">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0">Top 5 Bearish</h5>
-                            <span class="badge bg-danger">Down</span>
+                <div class="section-grid screen-grid">
+                    <div class="stack">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Stock drilldown</h3>
+                                    <p class="panel-subcopy">Quick quote and recommendation lookup for a ticker.</p>
+                                </div>
+                            </div>
+                            <div class="search-bar">
+                                <input
+                                    class="search-input"
+                                    id="stockSearch"
+                                    type="text"
+                                    placeholder="Enter a stock symbol like NVDA, MSFT, JPM, or AVGO"
+                                    onkeypress="handleSearchKeypress(event)"
+                                >
+                                <button class="button primary" type="button" onclick="searchStock()">
+                                    <i class="fa-solid fa-chart-column"></i>
+                                    Analyze stock
+                                </button>
+                            </div>
+                            <div id="stockAnalysis" style="display: none; margin-top: 18px;">
+                                <div class="panel-header">
+                                    <div>
+                                        <h3 id="analysisSymbol">--</h3>
+                                        <p class="panel-subcopy">Point-in-time quote plus model recommendation.</p>
+                                    </div>
+                                </div>
+                                <div class="analysis-grid">
+                                    <div>
+                                        <span>Current price</span>
+                                        <strong id="currentPrice">--</strong>
+                                    </div>
+                                    <div>
+                                        <span>Recommendation</span>
+                                        <strong id="recommendation">--</strong>
+                                    </div>
+                                    <div>
+                                        <span>Confidence</span>
+                                        <strong id="confidence">--</strong>
+                                    </div>
+                                    <div>
+                                        <span>Target price</span>
+                                        <strong id="targetPrice">--</strong>
+                                    </div>
+                                </div>
+                                <div id="analysisSummary" class="analysis-summary">Search a symbol to view the latest analysis.</div>
+                            </div>
                         </div>
-                        <div id="topBearishIdeas" class="idea-list">
-                            <div class="text-muted">Loading current bearish ideas...</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-xl-4">
-                    <div class="surface">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0">Prediction Tracker</h5>
-                            <span class="badge bg-primary" id="predictionAccuracyBadge">Pending</span>
-                        </div>
-                        <div id="predictionScoreboard">
-                            <div class="text-muted">Loading evaluation history...</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
 
-            <div class="row g-4 mt-1">
-                <div class="col-lg-7">
-                    <div class="surface">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0">Major Market Stories</h5>
-                            <small class="text-muted">Auto-linked to affected stocks</small>
-                        </div>
-                        <div id="majorStories" class="story-list">
-                            <div class="text-muted">Loading story flow...</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-lg-5">
-                    <div class="surface">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0">News Search Results</h5>
-                            <small class="text-muted">Top linked names</small>
-                        </div>
-                        <div id="newsSearchResults" class="story-list">
-                            <div class="text-muted">Run a query to explore live news and linked stocks.</div>
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>Reference stock screens</h3>
+                                    <p class="panel-subcopy">These are still useful as quick-entry points alongside the event-driven workspace.</p>
+                                </div>
+                            </div>
+                            <div class="tabs" id="listTabs">
+                                <button class="tab active" data-list="all-time-high">All-time highs</button>
+                                <button class="tab" data-list="undervalued">Undervalued</button>
+                                <button class="tab" data-list="sp500">S&amp;P 500</button>
+                                <button class="tab" data-list="strong-buy">Strong buy</button>
+                                <button class="tab" data-list="overvalued">Overvalued</button>
+                            </div>
+                            <div id="stockLists" style="margin-top: 18px;">
+                                <div class="loading-state">Loading stock screens...</div>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </div>
-        </section>
 
-        <!-- System Status -->
-        <div class="card mt-4">
-            <div class="card-header">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0">
-                        <i class="fas fa-heartbeat"></i> System Status
-                    </h6>
-                    <span id="telemetryStatus" class="badge bg-secondary">Telemetry Unknown</span>
+                    <div class="stack">
+                        <div class="panel">
+                            <div class="panel-header">
+                                <div>
+                                    <h3>System health</h3>
+                                    <p class="panel-subcopy">A lightweight health view for the API, data, ML, and telemetry surfaces.</p>
+                                </div>
+                            </div>
+                            <div class="status-grid">
+                                <div class="status-row">
+                                    <div>
+                                        <strong>API status</strong>
+                                        <div class="microcopy">Application and route availability</div>
+                                    </div>
+                                    <span class="badge neutral" id="apiStatus">Unknown</span>
+                                </div>
+                                <div class="status-row">
+                                    <div>
+                                        <strong>Data services</strong>
+                                        <div class="microcopy">Market data, research, and news inputs</div>
+                                    </div>
+                                    <span class="badge neutral" id="dataStatus">Unknown</span>
+                                </div>
+                                <div class="status-row">
+                                    <div>
+                                        <strong>ML engine</strong>
+                                        <div class="microcopy">Recommendation engine and local model hooks</div>
+                                    </div>
+                                    <span class="badge neutral" id="mlStatus">Unknown</span>
+                                </div>
+                                <div class="status-row">
+                                    <div>
+                                        <strong>Telemetry</strong>
+                                        <div class="microcopy">Tracker and observability path</div>
+                                    </div>
+                                    <span class="badge neutral" id="telemetryStatus">Unknown</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <div class="card-body">
-                <div id="systemStatus" class="row text-center">
-                    <div class="col-md-4">
-                        <div class="metric-box">
-                            <i class="fas fa-server fa-2x text-primary mb-2"></i>
-                            <h6>API Status</h6>
-                            <span id="apiStatus" class="badge bg-success">Online</span>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="metric-box">
-                            <i class="fas fa-database fa-2x text-info mb-2"></i>
-                            <h6>Data Services</h6>
-                            <span id="dataStatus" class="badge bg-success">Active</span>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="metric-box">
-                            <i class="fas fa-brain fa-2x text-warning mb-2"></i>
-                            <h6>ML Engine</h6>
-                            <span id="mlStatus" class="badge bg-success">Running</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+            </section>
+        </main>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

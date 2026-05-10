@@ -153,7 +153,10 @@ async def test_daily_prediction_report_tracks_outcomes_and_evidence(
 
     assert report["overall"]["evaluatedPredictions"] == 2
     assert report["overall"]["accuracyPct"] == 50.0
+    assert report["overall"]["systemRating"] == "C"
     assert report["overall"]["averageBenchmarkReturnPct"] == 0.2
+    assert report["reportDate"] == evaluation_time.date().isoformat()
+    assert "action" in report["exportColumns"]
     assert report["recentEvaluations"]
     assert report["recentEvaluations"][0]["supportingEvidence"]
     assert report["recentEvaluations"][0]["supportingEvidence"][0]["url"].startswith(

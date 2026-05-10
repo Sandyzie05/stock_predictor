@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     LOCAL_LLM_EMBEDDING_MODEL: Optional[str] = None
     LOCAL_LLM_TIMEOUT_SECONDS: int = 60
     LOCAL_LLM_MAX_ANALYSES_PER_REPORT: int = 4
+    REPORT_TIMEZONE: str = "America/Denver"
 
     # Cache Settings
     CACHE_TTL_SECONDS: int = 300

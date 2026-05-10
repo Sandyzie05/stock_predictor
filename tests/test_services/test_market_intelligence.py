@@ -123,8 +123,14 @@ async def test_build_today_report_links_news_to_stocks():
     assert report["topBullish"]
     assert report["topBearish"]
     assert report["majorStories"]
-    assert any(idea["symbol"] == "NVDA" for idea in report["topBullish"])
-    assert report["topBullish"][0]["supportingEvidence"]
-    assert report["topBullish"][0]["localModelAnalysis"]["verdict"] == "supports"
+    nvda_idea = next(idea for idea in report["topBullish"] if idea["symbol"] == "NVDA")
+    assert nvda_idea["supportingEvidence"]
+    assert nvda_idea["localModelAnalysis"]["verdict"] == "supports"
+    assert nvda_idea["action"] in {"buy", "watch"}
+    assert nvda_idea["dailyRating"] in {"A", "B", "C"}
+    assert report["summary"]["buyCount"] >= 0
+    assert set(report["summary"]).issuperset(
+        {"buyCount", "watchCount", "avoidCount", "topBuySymbol"}
+    )
     assert any(story["linkedStocks"] for story in report["majorStories"])
     assert report["scoreboard"]["totalIdeas"] == 4
