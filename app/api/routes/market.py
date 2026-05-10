@@ -50,3 +50,15 @@ async def get_prediction_scoreboard(
         return await service.scoreboard(days=days)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/predictions/daily-report", response_model=dict)
+async def get_daily_prediction_report(
+    days: int = Query(default=30, ge=7, le=365),
+    service: MarketIntelligenceService = Depends(get_market_intelligence_service),
+):
+    """Get a daily prediction report with evidence links and next-day outcomes."""
+    try:
+        return await service.daily_prediction_report(days=days)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

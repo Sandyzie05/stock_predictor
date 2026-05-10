@@ -30,6 +30,21 @@ class FakeMarketIntelligenceService:
     async def scoreboard(self, days: int = 90):
         return {"totalIdeas": 4, "pendingIdeas": 2, "recentIdeas": []}
 
+    async def daily_prediction_report(self, days: int = 30):
+        return {
+            "overall": {"accuracyPct": 60.0, "evaluatedPredictions": 5},
+            "todayPredictions": [
+                {
+                    "symbol": "NVDA",
+                    "supportingEvidence": [
+                        {"url": "https://example.com/nvda-ai", "title": "AI demand story"}
+                    ],
+                }
+            ],
+            "recentEvaluations": [],
+            "narrative": ["Recent evaluated calls are improving versus the prior window."],
+        }
+
 
 async def override_market_service():
     yield FakeMarketIntelligenceService()
@@ -74,3 +89,19 @@ def test_market_prediction_scoreboard_endpoint():
     assert response.status_code == 200
     payload = response.json()
     assert payload["totalIdeas"] == 4
+
+
+def test_market_daily_prediction_report_endpoint():
+    app.dependency_overrides[get_market_intelligence_service] = override_market_service
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/v1/market/predictions/daily-report?days=30")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["overall"]["accuracyPct"] == 60.0
+    assert payload["todayPredictions"][0]["supportingEvidence"][0]["url"].startswith(
+        "https://example.com/"
+    )

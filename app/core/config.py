@@ -69,8 +69,12 @@ class Settings(BaseSettings):
     ENABLE_FRED_MACRO: bool = True
     ENABLE_MARKET_INTELLIGENCE: bool = True
     ENABLE_LOCAL_LLM: bool = False
+    LOCAL_LLM_PROVIDER: Optional[str] = None
     LOCAL_LLM_BASE_URL: Optional[str] = None
     LOCAL_LLM_MODEL: Optional[str] = None
+    LOCAL_LLM_EMBEDDING_MODEL: Optional[str] = None
+    LOCAL_LLM_TIMEOUT_SECONDS: int = 60
+    LOCAL_LLM_MAX_ANALYSES_PER_REPORT: int = 4
 
     # Cache Settings
     CACHE_TTL_SECONDS: int = 300

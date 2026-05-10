@@ -7,6 +7,7 @@ Stock Predictor is a FastAPI service for stock research, technical analysis, rec
 - Serves stock quote, company, analysis, prediction, recommendation, and stock-list endpoints
 - Exposes `GET /api/v1/stocks/{symbol}/research-prediction` for source-aware research output
 - Exposes `GET /api/v1/themes/ai-infrastructure` for AI infrastructure and inference theme mapping
+- Exposes `GET /api/v1/market/predictions/daily-report` for next-day verification and trend tracking
 - Includes a source registry for free and low-cost market and news sources
 - Supports local development with SQLite or a broader Docker setup with Postgres and Redis
 
@@ -45,6 +46,12 @@ The app defaults to `production` mode, so you should set development-friendly va
 | `POLYGON_API_KEY` | Optional | `...` |
 | `NEWS_API_KEY` | Optional | `...` |
 | `ALPHA_VANTAGE_API_KEY` | Optional | `...` |
+| `ENABLE_LOCAL_LLM` | Optional | `false` |
+| `LOCAL_LLM_PROVIDER` | Optional | `ollama` |
+| `LOCAL_LLM_BASE_URL` | Optional | `http://127.0.0.1:11434/v1` |
+| `LOCAL_LLM_MODEL` | Optional | `llama3.1:8b` |
+| `LOCAL_LLM_EMBEDDING_MODEL` | Optional | `nomic-embed-text` |
+| `LOCAL_LLM_MAX_ANALYSES_PER_REPORT` | Optional | `4` |
 
 ## Setup
 
@@ -177,6 +184,8 @@ Expect these response areas:
 - `evidence`
 - `disclaimer`
 
+For ranked daily ideas, the market-intelligence feed now also attaches `supportingEvidence` links to each predicted stock when source URLs are available.
+
 ### Scenario 3: AI infrastructure and inference theme exploration
 
 Use the theme endpoint to inspect second-order AI beneficiaries beyond GPU vendors.
@@ -219,6 +228,48 @@ The app can still run without market-data API keys:
 
 This is useful for UI work, contract checks, route wiring, and focused service development.
 
+### Scenario 6: Daily prediction audit report
+
+Use the daily report when you want to know whether yesterday's or last week's calls were actually working.
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/market/predictions/daily-report?days=30"
+```
+
+The daily report includes:
+
+- `overall` accuracy, pending count, and average benchmark-relative return
+- `trend` status showing whether the recent window is improving or slipping
+- `todayPredictions` with supporting evidence links
+- `recentEvaluations` with realized return, benchmark return, and excess return
+- `localModelPlan` showing the configured or planned local-analysis slot
+
+This is the main answer to "are the predictions actually getting better?"
+
+### Scenario 7: Optional local-model analysis over the local network
+
+The predictor now reserves a configuration slot for a local model that works from retrieved evidence instead of making unsupported claims. The intended flow is:
+
+1. fetch fresh quote, filing, macro, and news evidence
+2. rank and deduplicate evidence before prompting the model
+3. ask the local model for a structured thesis, counter-thesis, and what changed today
+4. store the model output beside the raw evidence so next-day review can audit both
+
+Two easy local providers to target are [Ollama](https://docs.ollama.com/api/openai-compatibility) and [LM Studio](https://lmstudio.ai/docs/app/api/endpoints/openai).
+
+Example for a two-machine setup where Ollama runs on `macmini2.local` and the API runs on another Mac:
+
+```bash
+export ENABLE_LOCAL_LLM=true
+export LOCAL_LLM_PROVIDER=ollama
+export LOCAL_LLM_BASE_URL=http://macmini2.local:11434/v1
+export LOCAL_LLM_MODEL=qwen3:4b
+export LOCAL_LLM_EMBEDDING_MODEL=nomic-embed-text
+export LOCAL_LLM_MAX_ANALYSES_PER_REPORT=4
+```
+
+In the current implementation, the market-intelligence report sends a small evidence bundle for the top ideas to the configured model, stores the returned thesis with the daily snapshot, and exposes it in the API response as `localModelAnalysis`.
+
 ## Testing
 
 ### Focused research tests
@@ -228,8 +279,12 @@ This is the most reliable validation path for the new research work.
 ```bash
 cd /Users/sandgupt/RandomIdeasWithAI/stock_predictor
 SECRET_KEY=test-secret-key ENVIRONMENT=testing ./venv/bin/python -m pytest \
+  tests/test_services/test_daily_prediction_report.py \
+  tests/test_services/test_local_model_analysis.py \
   tests/test_services/test_research_platform.py \
+  tests/test_services/test_market_intelligence.py \
   tests/test_api/test_research_routes.py \
+  tests/test_api/test_market_routes.py \
   tests/test_services/test_data_fetcher.py -q
 ```
 

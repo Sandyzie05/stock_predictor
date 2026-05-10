@@ -327,6 +327,8 @@ function renderIdeaList(containerId, ideas, tone) {
 
     container.innerHTML = ideas.map((idea, index) => {
         const metrics = idea.metrics || {};
+        const evidenceLinks = (idea.supportingEvidence || []).filter((item) => item.url).slice(0, 3);
+        const localModel = idea.localModelAnalysis || null;
         const confidencePct = idea.confidence ? `${Math.round(idea.confidence * 100)}%` : 'n/a';
         const peText = metrics.peRatio ? `P/E ${metrics.peRatio.toFixed(1)}` : 'P/E n/a';
         const changeClass = (idea.changePercent || 0) >= 0 ? 'price-positive' : 'price-negative';
@@ -352,6 +354,18 @@ function renderIdeaList(containerId, ideas, tone) {
                 <div class="mt-2">
                     <small class="text-muted">${(idea.reasoning || []).slice(0, 2).join(' ')}</small>
                 </div>
+                ${localModel ? `
+                    <div class="mt-2">
+                        <small><strong>Local model:</strong> ${localModel.verdict || 'n/a'} - ${localModel.thesisSummary || ''}</small>
+                    </div>
+                ` : ''}
+                ${evidenceLinks.length ? `
+                    <div class="mt-2">
+                        ${evidenceLinks.map((item) => `
+                            <div><a href="${item.url}" target="_blank" rel="noopener noreferrer">${item.source || 'Source'}: ${item.title}</a></div>
+                        `).join('')}
+                    </div>
+                ` : ''}
             </div>
         `;
     }).join('');

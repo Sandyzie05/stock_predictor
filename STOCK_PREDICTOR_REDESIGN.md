@@ -185,6 +185,7 @@ Tables to add:
 - `predictions`
 - `backtest_results`
 - `prediction_outcomes`
+- `daily_prediction_snapshot`
 
 ### Services
 
@@ -197,6 +198,8 @@ Tables to add:
 - `BacktestService`: walk-forward evaluation and leakage checks.
 - `PredictionService`: calibrated model inference.
 - `ExplanationService`: evidence cards and factor contribution summaries.
+- `DailyPredictionReportService`: next-day verification, benchmark comparison, and improvement trend reporting.
+- `LocalModelAnalysisService`: optional real-time thesis summarization from retrieved evidence through a local OpenAI-compatible endpoint.
 
 ## Implementation Roadmap
 
@@ -243,6 +246,7 @@ Tables to add:
 - Theme page: AI infrastructure map, beneficiaries, bottlenecks, recent events.
 - Backtest page: model version, date range, performance, failures.
 - Watchlist page: "what changed today" with source-backed explanations.
+- Daily audit page: every stored prediction, supporting links, next-day outcome, benchmark-relative performance, and "improving or slipping" summary.
 
 ## What The Current Project Is Missing
 
@@ -256,6 +260,7 @@ Tables to add:
 - Sector and supply-chain models.
 - Explanation output with linked evidence.
 - Model monitoring against realized outcomes.
+- A stored daily report that preserves evidence links and checks next-day accuracy.
 
 ## Source Notes
 

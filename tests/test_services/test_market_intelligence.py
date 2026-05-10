@@ -55,6 +55,9 @@ class FakeResearchService:
         return SimpleNamespace(
             horizons=[horizon],
             coverage={"activeSignalFamilies": ["trend", "theme", "news"]},
+            evidence=[],
+            model_version="research-v0.2.0",
+            signal_breakdown={"theme": {"score": 0.8}},
         )
 
 
@@ -69,12 +72,26 @@ class FakeTracker:
         return {"totalIdeas": 4, "pendingIdeas": 4, "recentIdeas": []}
 
 
+class FakeLocalModelService:
+    def enabled(self):
+        return True
+
+    async def analyze_prediction(self, idea):
+        return {
+            "provider": "ollama",
+            "model": "qwen3:4b",
+            "verdict": "supports",
+            "thesisSummary": f"{idea['symbol']} has evidence-backed support.",
+        }
+
+
 @pytest.mark.asyncio
 async def test_build_today_report_links_news_to_stocks():
     service = MarketIntelligenceService()
     service.data_fetcher = FakeFetcher()
     service.research_service = FakeResearchService()
     service.tracker = FakeTracker()
+    service.local_model_service = FakeLocalModelService()
 
     async def fake_search(query: str, limit: int):
         if "artificial intelligence" in query:
@@ -107,5 +124,7 @@ async def test_build_today_report_links_news_to_stocks():
     assert report["topBearish"]
     assert report["majorStories"]
     assert any(idea["symbol"] == "NVDA" for idea in report["topBullish"])
+    assert report["topBullish"][0]["supportingEvidence"]
+    assert report["topBullish"][0]["localModelAnalysis"]["verdict"] == "supports"
     assert any(story["linkedStocks"] for story in report["majorStories"])
     assert report["scoreboard"]["totalIdeas"] == 4

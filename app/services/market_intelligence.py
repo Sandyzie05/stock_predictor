@@ -12,7 +12,9 @@ from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from app.core.config import settings
+from app.services.daily_prediction_report import DailyPredictionReportService
 from app.services.event_extractor import EventExtractionService
+from app.services.local_model_analysis import LocalModelAnalysisService
 from app.services.prediction_tracker import PredictionTrackerService
 from app.services.real_data_fetcher import RealDataFetcherService
 from app.services.research_models import EvidenceCard
@@ -122,16 +124,24 @@ class MarketIntelligenceService:
         self.event_extractor = EventExtractionService()
         self.source_registry = SourceRegistry()
         self.tracker: Optional[PredictionTrackerService] = None
+        self.daily_report_service: Optional[DailyPredictionReportService] = None
+        self.local_model_service: Optional[LocalModelAnalysisService] = None
 
     async def __aenter__(self):
         self.data_fetcher = RealDataFetcherService()
         self.research_service = ResearchPredictionService()
+        self.local_model_service = LocalModelAnalysisService()
         await self.data_fetcher.__aenter__()
         await self.research_service.__aenter__()
+        if self.local_model_service.enabled():
+            await self.local_model_service.__aenter__()
         self.tracker = PredictionTrackerService(self.data_fetcher)
+        self.daily_report_service = DailyPredictionReportService(self.data_fetcher)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.local_model_service and self.local_model_service.enabled():
+            await self.local_model_service.__aexit__(exc_type, exc_val, exc_tb)
         if self.research_service:
             await self.research_service.__aexit__(exc_type, exc_val, exc_tb)
         if self.data_fetcher:
@@ -169,9 +179,14 @@ class MarketIntelligenceService:
         bullish, bearish = self._separate_conflicts(
             bullish_ranked, bearish_ranked, limit=limit
         )
+        await self._attach_local_model_analysis([*bullish, *bearish])
 
         await self.tracker.evaluate_due_predictions(as_of)
         await self.tracker.record_market_ideas(as_of, [*bullish, *bearish], horizon_days=5)
+        if self.daily_report_service:
+            await self.daily_report_service.record_predictions(
+                as_of, [*bullish, *bearish], horizon_days=1
+            )
         scoreboard = await self.tracker.scoreboard(days=90)
 
         report = {
@@ -234,6 +249,13 @@ class MarketIntelligenceService:
             raise RuntimeError("MarketIntelligenceService must be used as async context manager")
         await self.tracker.evaluate_due_predictions(datetime.utcnow())
         return await self.tracker.scoreboard(days)
+
+    async def daily_prediction_report(self, days: int = 30) -> Dict[str, Any]:
+        """Return a daily prediction quality report with evidence links."""
+        if not self.daily_report_service:
+            raise RuntimeError("MarketIntelligenceService must be used as async context manager")
+        await self.build_today_report(limit=5)
+        return await self.daily_report_service.report(days=days, as_of=datetime.utcnow())
 
     async def _search_topic_news(
         self, topic: TopicProfile, limit: int = 6
@@ -361,6 +383,9 @@ class MarketIntelligenceService:
                 "storyScore": story["impactScore"],
                 "linkedReason": linked["reason"],
                 "sourceId": story["sourceId"],
+                "source": story["source"],
+                "url": story["url"],
+                "publishedAt": story["publishedAt"],
             }
 
             if direction == "up":
@@ -456,6 +481,7 @@ class MarketIntelligenceService:
                         medium,
                         theme_bonus,
                     ),
+                    "modelVersion": getattr(research, "model_version", None),
                     "metrics": {
                         "marketCapBillions": round(float(company.market_cap or 0) / 1_000_000_000, 2)
                         if company.market_cap
@@ -479,10 +505,110 @@ class MarketIntelligenceService:
                     "sourceIds": sorted(
                         {entry["sourceId"] for entry in contributions if entry.get("sourceId")}
                     ),
+                    "coverage": getattr(research, "coverage", {}) if research else {},
+                    "signalBreakdown": getattr(research, "signal_breakdown", {})
+                    if research
+                    else {},
+                    "supportingEvidence": self._build_supporting_evidence(
+                        symbol=symbol,
+                        contributions=contributions,
+                        research=research,
+                    ),
                 }
             )
 
         return ideas[:limit]
+
+    async def _attach_local_model_analysis(self, ideas: List[Dict[str, Any]]) -> None:
+        if (
+            not self.local_model_service
+            or not self.local_model_service.enabled()
+            or not ideas
+        ):
+            return
+
+        budget = max(0, settings.LOCAL_LLM_MAX_ANALYSES_PER_REPORT)
+        if budget <= 0:
+            return
+
+        ranked = sorted(
+            ideas,
+            key=lambda item: float(item.get("score") or 0.0),
+            reverse=True,
+        )[:budget]
+
+        for idea in ranked:
+            try:
+                idea["localModelAnalysis"] = await self.local_model_service.analyze_prediction(
+                    idea
+                )
+            except Exception as exc:
+                idea["localModelError"] = str(exc)
+
+    def _build_supporting_evidence(
+        self,
+        symbol: str,
+        contributions: List[Dict[str, Any]],
+        research,
+    ) -> List[Dict[str, Any]]:
+        evidence: List[Dict[str, Any]] = []
+        seen = set()
+
+        for entry in contributions:
+            key = ("story", entry.get("catalyst"), entry.get("url"))
+            if key in seen:
+                continue
+            seen.add(key)
+            evidence.append(
+                {
+                    "title": entry.get("catalyst"),
+                    "summary": entry.get("linkedReason"),
+                    "source": entry.get("source"),
+                    "sourceId": entry.get("sourceId"),
+                    "sourceType": "live",
+                    "publishedAt": entry.get("publishedAt"),
+                    "url": entry.get("url"),
+                    "confidence": round(min(max(entry.get("score", 0.0), 0.0), 1.0), 4),
+                }
+            )
+
+        for card in getattr(research, "evidence", []) or []:
+            if getattr(card, "source_type", None) == "demo":
+                continue
+            card_symbols = getattr(card, "symbols", []) or []
+            if card_symbols and symbol not in card_symbols:
+                continue
+            key = (
+                "research",
+                getattr(card, "title", None),
+                getattr(card, "url", None),
+                getattr(card, "source_id", None),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            evidence.append(
+                {
+                    "title": getattr(card, "title", None),
+                    "summary": getattr(card, "summary", None),
+                    "source": getattr(card, "source", None),
+                    "sourceId": getattr(card, "source_id", None),
+                    "sourceType": getattr(card, "source_type", None),
+                    "publishedAt": getattr(card, "published_at", None).isoformat()
+                    if getattr(card, "published_at", None)
+                    else None,
+                    "url": getattr(card, "url", None),
+                    "confidence": round(getattr(card, "confidence", 0.0), 4),
+                }
+            )
+
+        evidence.sort(
+            key=lambda item: (
+                0 if item.get("url") else 1,
+                -float(item.get("confidence") or 0.0),
+            )
+        )
+        return evidence[:5]
 
     def _build_idea_reasoning(
         self,
