@@ -48,12 +48,17 @@ The app defaults to `production` mode, so you should set development-friendly va
 | `ALPHA_VANTAGE_API_KEY` | Optional | `...` |
 | `ENABLE_LOCAL_LLM` | Optional | `false` |
 | `LOCAL_LLM_PROVIDER` | Optional | `ollama` |
-| `LOCAL_LLM_BASE_URL` | Optional | `http://127.0.0.1:11434/v1` |
-| `LOCAL_LLM_MODEL` | Optional | `llama3.1:8b` |
+| `LOCAL_LLM_BASE_URL` | Optional | `http://macmini2.local:11434/v1` |
+| `LOCAL_LLM_MODEL` | Optional | `qwen3:4b` |
 | `LOCAL_LLM_EMBEDDING_MODEL` | Optional | `nomic-embed-text` |
-| `LOCAL_LLM_MAX_ANALYSES_PER_REPORT` | Optional | `4` |
+| `LOCAL_LLM_MAX_ANALYSES_PER_REPORT` | Optional | `2` |
+| `ENABLE_SCENARIO_SWARM` | Optional | `true` |
+| `SCENARIO_SWARM_MAX_IDEAS_PER_REPORT` | Optional | `3` |
+| `SCENARIO_SWARM_AGENT_COUNT` | Optional | `4` |
+| `HOST` | Optional | `127.0.0.1` |
+| `PORT` | Optional | `8000` |
 
-## Setup
+## Get started
 
 ### 1. Create or activate the virtual environment
 
@@ -71,11 +76,95 @@ cd /Users/sandgupt/RandomIdeasWithAI/stock_predictor
 source venv/bin/activate
 ```
 
-### 2. Choose a run mode
+### 2. Choose your runtime shape
 
-#### Scenario A: Fastest local API run with SQLite
+#### Scenario A: Single-machine local development
 
-This is the easiest path for local development and docs access.
+Use this when everything runs on one Mac and you only need browser access from that same machine.
+
+```bash
+cd /Users/sandgupt/RandomIdeasWithAI/stock_predictor
+source venv/bin/activate
+export ENVIRONMENT=development
+export SECRET_KEY=dev-secret-key
+export DEBUG=true
+export DATABASE_URL=sqlite+aiosqlite:///./stock_predictor_dev.db
+export HOST=127.0.0.1
+export PORT=8000
+uvicorn app.main:app --reload --host "$HOST" --port "$PORT"
+```
+
+#### Scenario B: Two-machine setup with Ollama on the network
+
+Use this when:
+
+- `macmini1.local` runs `stock_predictor`
+- `macmini2.local` runs Ollama
+
+```bash
+cd /Users/sandgupt/RandomIdeasWithAI/stock_predictor
+source venv/bin/activate
+export ENVIRONMENT=development
+export SECRET_KEY=dev-secret-key
+export DEBUG=true
+export DATABASE_URL=sqlite+aiosqlite:///./stock_predictor_dev.db
+
+export ENABLE_LOCAL_LLM=true
+export LOCAL_LLM_PROVIDER=ollama
+export LOCAL_LLM_BASE_URL=http://macmini2.local:11434/v1
+export LOCAL_LLM_MODEL=qwen3:4b
+export LOCAL_LLM_EMBEDDING_MODEL=nomic-embed-text
+export LOCAL_LLM_TIMEOUT_SECONDS=60
+export LOCAL_LLM_MAX_ANALYSES_PER_REPORT=2
+
+export ENABLE_SCENARIO_SWARM=true
+export SCENARIO_SWARM_MAX_IDEAS_PER_REPORT=3
+export SCENARIO_SWARM_AGENT_COUNT=4
+
+export HOST=127.0.0.1
+export PORT=8000
+uvicorn app.main:app --reload --host "$HOST" --port "$PORT"
+```
+
+What this enables:
+
+- deterministic event and evidence scoring
+- structured local-model thesis review
+- a small role-based scenario swarm
+- daily snapshot storage and next-day validation
+- CSV export with scenario columns for Excel or downstream analysis
+
+#### Scenario C: LAN access from other devices on the same network
+
+Use this when you want to open the app from another laptop, tablet, or desktop on the same Wi-Fi or wired network.
+
+```bash
+cd /Users/sandgupt/RandomIdeasWithAI/stock_predictor
+source venv/bin/activate
+export ENVIRONMENT=development
+export SECRET_KEY=dev-secret-key
+export DEBUG=true
+export DATABASE_URL=sqlite+aiosqlite:///./stock_predictor_dev.db
+export HOST=0.0.0.0
+export PORT=8000
+uvicorn app.main:app --reload --host "$HOST" --port "$PORT"
+```
+
+Then open this from another device:
+
+```text
+http://macmini1.local:8000/
+```
+
+If you prefer the helper script:
+
+```bash
+HOST=0.0.0.0 PORT=8000 ./start_dev.sh
+```
+
+#### Scenario D: Fastest script-based SQLite run
+
+This is the easiest path when you want the existing helper script and same-machine access.
 
 ```bash
 cd /Users/sandgupt/RandomIdeasWithAI/stock_predictor
@@ -89,7 +178,7 @@ What this script does:
 - Uses `sqlite+aiosqlite:///./stock_predictor_dev.db`
 - Starts Uvicorn on `http://127.0.0.1:8000`
 
-#### Scenario B: Manual local run with your own environment
+#### Scenario E: Manual local run with your own environment
 
 Use this when you want explicit control over config.
 
@@ -100,10 +189,12 @@ export ENVIRONMENT=development
 export SECRET_KEY=dev-secret-key
 export DEBUG=true
 export DATABASE_URL=sqlite+aiosqlite:///./stock_predictor_dev.db
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+export HOST=127.0.0.1
+export PORT=8000
+uvicorn app.main:app --reload --host "$HOST" --port "$PORT"
 ```
 
-#### Scenario C: Docker-backed stack with Postgres and Redis
+#### Scenario F: Docker-backed stack with Postgres and Redis
 
 Use this when you want the app plus supporting services.
 
@@ -148,6 +239,88 @@ Useful local URLs:
 - App root: `http://127.0.0.1:8000/`
 - Swagger docs: `http://127.0.0.1:8000/docs`
 - ReDoc: `http://127.0.0.1:8000/redoc`
+
+## Access from other devices on the same network
+
+If `ping macmini1.local` works but `http://macmini1.local:8000/` does not open in a browser, the most common reason is that the app is only listening on loopback.
+
+Important detail:
+
+- `ping macmini1.local` proving `10.0.0.5` works means mDNS name resolution is fine
+- `nslookup macmini1.local` returning `NXDOMAIN` is expected on many networks because `.local` is usually resolved by mDNS, not by your normal DNS server
+
+### Checklist
+
+1. Start the app on `macmini1` with a LAN-visible bind:
+
+```bash
+HOST=0.0.0.0 PORT=8000 ./start_dev.sh
+```
+
+or:
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+2. Confirm the server is listening on all interfaces from `macmini1`:
+
+```bash
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+```
+
+Expected shape:
+
+- good: `*:8000` or `0.0.0.0:8000`
+- not enough for LAN: `127.0.0.1:8000`
+
+3. Make sure macOS Firewall allows incoming connections for Python or Terminal:
+
+- `System Settings` -> `Network` -> `Firewall`
+- either turn Firewall off temporarily for testing, or allow incoming connections for the terminal app / Python runtime you are using
+
+4. From another device on the same network, test:
+
+```bash
+curl http://macmini1.local:8000/health
+curl http://macmini1.local:8000/api
+```
+
+If those work, the browser URL should also work:
+
+```text
+http://macmini1.local:8000/
+```
+
+5. If `.local` is flaky on a non-Apple client, test direct IP once:
+
+```text
+http://10.0.0.5:8000/
+```
+
+If the IP works but `.local` does not, the problem is mDNS support on that client, not the app.
+
+### Recommended LAN run command for this project
+
+```bash
+cd /Users/sandgupt/RandomIdeasWithAI/stock_predictor
+source venv/bin/activate
+export ENVIRONMENT=development
+export SECRET_KEY=dev-secret-key
+export DEBUG=true
+export DATABASE_URL=sqlite+aiosqlite:///./stock_predictor_dev.db
+export ENABLE_LOCAL_LLM=true
+export LOCAL_LLM_PROVIDER=ollama
+export LOCAL_LLM_BASE_URL=http://macmini2.local:11434/v1
+export LOCAL_LLM_MODEL=qwen3:4b
+export LOCAL_LLM_MAX_ANALYSES_PER_REPORT=2
+export ENABLE_SCENARIO_SWARM=true
+export SCENARIO_SWARM_MAX_IDEAS_PER_REPORT=3
+export SCENARIO_SWARM_AGENT_COUNT=4
+export HOST=0.0.0.0
+export PORT=8000
+uvicorn app.main:app --reload --host "$HOST" --port "$PORT"
+```
 
 ## Usage scenarios
 
@@ -246,7 +419,7 @@ The daily report includes:
 
 This is the main answer to "are the predictions actually getting better?"
 
-### Scenario 7: Optional local-model analysis over the local network
+### Scenario 7: Local-model analysis and scenario swarm over the local network
 
 The predictor now reserves a configuration slot for a local model that works from retrieved evidence instead of making unsupported claims. The intended flow is:
 
@@ -265,10 +438,18 @@ export LOCAL_LLM_PROVIDER=ollama
 export LOCAL_LLM_BASE_URL=http://macmini2.local:11434/v1
 export LOCAL_LLM_MODEL=qwen3:4b
 export LOCAL_LLM_EMBEDDING_MODEL=nomic-embed-text
-export LOCAL_LLM_MAX_ANALYSES_PER_REPORT=4
+export LOCAL_LLM_MAX_ANALYSES_PER_REPORT=2
+export ENABLE_SCENARIO_SWARM=true
+export SCENARIO_SWARM_MAX_IDEAS_PER_REPORT=3
+export SCENARIO_SWARM_AGENT_COUNT=4
 ```
 
-In the current implementation, the market-intelligence report sends a small evidence bundle for the top ideas to the configured model, stores the returned thesis with the daily snapshot, and exposes it in the API response as `localModelAnalysis`.
+In the current implementation:
+
+- the market-intelligence report sends a small evidence bundle for the top ideas to the configured model
+- the app stores the returned thesis with the daily snapshot as `localModelAnalysis`
+- the app also runs a small role-based scenario swarm and stores that result as `scenarioSwarm`
+- the CSV export now includes columns such as `scenario_verdict`, `scenario_support_score`, `scenario_disagreement_score`, and `scenario_fragility_score`
 
 ## Testing
 
