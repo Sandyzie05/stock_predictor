@@ -24,6 +24,7 @@ class LocalModelAnalysisService:
         self.model = settings.LOCAL_LLM_MODEL
         self.provider = settings.LOCAL_LLM_PROVIDER or "openai-compatible"
         self.timeout_seconds = max(settings.LOCAL_LLM_TIMEOUT_SECONDS, 5)
+        self.num_ctx = max(settings.LOCAL_LLM_NUM_CTX, 1024)
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
@@ -91,6 +92,7 @@ class LocalModelAnalysisService:
             "keyRisks": parsed.get("keyRisks") or [],
             "confidenceAdjustment": parsed.get("confidenceAdjustment"),
             "watchNextSession": parsed.get("watchNextSession") or [],
+            "usage": parsed.get("_usage") or {},
         }
 
     async def request_structured_json(
@@ -137,6 +139,7 @@ class LocalModelAnalysisService:
             "model": self.model,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "num_ctx": self.num_ctx,
             "think": False,
             "stream": False,
             "messages": [
@@ -163,7 +166,13 @@ class LocalModelAnalysisService:
 
         message = (((payload.get("choices") or [{}])[0]).get("message") or {})
         content = message.get("content") or ""
-        return self._parse_json(content)
+        parsed = self._parse_json(content)
+        parsed["_usage"] = self._extract_usage(
+            payload,
+            prompt_chars=len(user_prompt),
+            max_tokens=max_tokens,
+        )
+        return parsed
 
     async def _request_with_ollama_native(
         self,
@@ -182,6 +191,7 @@ class LocalModelAnalysisService:
             "options": {
                 "temperature": temperature,
                 "num_predict": max_tokens,
+                "num_ctx": self.num_ctx,
             },
             "messages": [
                 {
@@ -205,7 +215,13 @@ class LocalModelAnalysisService:
 
         message = payload.get("message") or {}
         content = message.get("content") or ""
-        return self._parse_json(content)
+        parsed = self._parse_json(content)
+        parsed["_usage"] = self._extract_usage(
+            payload,
+            prompt_chars=len(user_prompt),
+            max_tokens=max_tokens,
+        )
+        return parsed
 
     def _build_prompt(self, idea: Dict[str, Any]) -> str:
         evidence = []
@@ -261,3 +277,32 @@ class LocalModelAnalysisService:
             return json.loads(content[first : last + 1])
 
         raise ValueError("Local model did not return parseable JSON.")
+
+    def _extract_usage(
+        self,
+        payload: Dict[str, Any],
+        *,
+        prompt_chars: int,
+        max_tokens: int,
+    ) -> Dict[str, Any]:
+        return {
+            "numCtx": self.num_ctx,
+            "promptChars": prompt_chars,
+            "approxPromptTokens": max(1, round(prompt_chars / 4)),
+            "maxOutputTokens": max_tokens,
+            "promptEvalCount": payload.get("prompt_eval_count"),
+            "evalCount": payload.get("eval_count"),
+            "totalDurationMs": self._ns_to_ms(payload.get("total_duration")),
+            "loadDurationMs": self._ns_to_ms(payload.get("load_duration")),
+            "promptEvalDurationMs": self._ns_to_ms(payload.get("prompt_eval_duration")),
+            "evalDurationMs": self._ns_to_ms(payload.get("eval_duration")),
+        }
+
+    @staticmethod
+    def _ns_to_ms(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            return round(float(value) / 1_000_000, 3)
+        except (TypeError, ValueError):
+            return None

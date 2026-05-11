@@ -39,6 +39,7 @@ async def test_local_model_analysis_parses_openai_compatible_response(monkeypatc
     monkeypatch.setattr(settings, "LOCAL_LLM_PROVIDER", "openai-compatible")
     monkeypatch.setattr(settings, "LOCAL_LLM_BASE_URL", "http://macmini2.local:11434/v1")
     monkeypatch.setattr(settings, "LOCAL_LLM_MODEL", "qwen3:4b")
+    monkeypatch.setattr(settings, "LOCAL_LLM_NUM_CTX", 8192)
 
     service = LocalModelAnalysisService()
     service.session = FakeSession(
@@ -54,7 +55,10 @@ async def test_local_model_analysis_parses_openai_compatible_response(monkeypatc
                         )
                     }
                 }
-            ]
+            ],
+            "prompt_eval_count": 145,
+            "eval_count": 28,
+            "total_duration": 12_000_000,
         }
     )
 
@@ -77,6 +81,8 @@ async def test_local_model_analysis_parses_openai_compatible_response(monkeypatc
     assert result["model"] == "qwen3:4b"
     assert result["verdict"] == "supports"
     assert result["confidenceAdjustment"] == "increase"
+    assert result["usage"]["numCtx"] == 8192
+    assert result["usage"]["promptEvalCount"] == 145
 
 
 @pytest.mark.asyncio
@@ -85,6 +91,7 @@ async def test_local_model_analysis_parses_ollama_native_response(monkeypatch):
     monkeypatch.setattr(settings, "LOCAL_LLM_PROVIDER", "ollama")
     monkeypatch.setattr(settings, "LOCAL_LLM_BASE_URL", "http://macmini2.local:11434/v1")
     monkeypatch.setattr(settings, "LOCAL_LLM_MODEL", "qwen3:4b")
+    monkeypatch.setattr(settings, "LOCAL_LLM_NUM_CTX", 8192)
 
     service = LocalModelAnalysisService()
     service.session = FakeSession(
@@ -96,7 +103,9 @@ async def test_local_model_analysis_parses_ollama_native_response(monkeypatch):
                     '"keyRisks":["Valuation"],"confidenceAdjustment":"increase",'
                     '"watchNextSession":["Datacenter capex headlines"]}'
                 )
-            }
+            },
+            "prompt_eval_count": 133,
+            "eval_count": 22,
         }
     )
 
@@ -104,3 +113,5 @@ async def test_local_model_analysis_parses_ollama_native_response(monkeypatch):
 
     assert result["provider"] == "ollama"
     assert result["verdict"] == "supports"
+    assert result["usage"]["numCtx"] == 8192
+    assert result["usage"]["promptEvalCount"] == 133

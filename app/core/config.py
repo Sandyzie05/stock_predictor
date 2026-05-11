@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     LOCAL_LLM_MODEL: Optional[str] = None
     LOCAL_LLM_EMBEDDING_MODEL: Optional[str] = None
     LOCAL_LLM_TIMEOUT_SECONDS: int = 60
+    LOCAL_LLM_NUM_CTX: int = 8192
     LOCAL_LLM_MAX_ANALYSES_PER_REPORT: int = 4
     ENABLE_SCENARIO_SWARM: bool = True
     SCENARIO_SWARM_MAX_IDEAS_PER_REPORT: int = 3
