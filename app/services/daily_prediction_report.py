@@ -11,10 +11,11 @@ from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.daily_prediction import DailyPredictionSnapshot
+from app.models.daily_prediction import DailyPredictionScenario, DailyPredictionSnapshot
 from app.services.real_data_fetcher import RealDataFetcherService
 from app.services.report_clock import next_reset, report_day, report_now
 
@@ -46,6 +47,12 @@ class DailyPredictionReportService:
                     )
                 )
                 if existing:
+                    await self._upsert_scenario(
+                        session,
+                        snapshot_key=snapshot_key,
+                        report_date=report_date,
+                        idea=idea,
+                    )
                     continue
 
                 baseline_price = self._as_decimal(idea.get("currentPrice"))
@@ -84,6 +91,12 @@ class DailyPredictionReportService:
                     status="pending",
                 )
                 session.add(record)
+                await self._upsert_scenario(
+                    session,
+                    snapshot_key=snapshot_key,
+                    report_date=report_date,
+                    idea=idea,
+                )
                 created += 1
 
             if created:
@@ -237,7 +250,8 @@ class DailyPredictionReportService:
                 "workflow": [
                     "retrieve fresh evidence from market, news, filing, and macro sources",
                     "rank and filter evidence before prompting the local model",
-                    "ask the local model for a structured thesis, counter-arguments, and changed-fact summary",
+                    "ask a handful of local specialist agents to review the same packet from different angles",
+                    "aggregate the agent opinions deterministically into a scenario verdict and fragility score",
                     "store the local-model output beside the raw evidence for next-day review",
                 ],
             },
@@ -254,6 +268,7 @@ class DailyPredictionReportService:
         async with AsyncSessionLocal() as session:
             result = await session.scalars(
                 select(DailyPredictionSnapshot)
+                .options(selectinload(DailyPredictionSnapshot.scenario))
                 .where(DailyPredictionSnapshot.report_date >= cutoff)
                 .order_by(
                     DailyPredictionSnapshot.report_date.desc(),
@@ -430,6 +445,7 @@ class DailyPredictionReportService:
         return lines
 
     def _to_api(self, row: DailyPredictionSnapshot) -> Dict[str, Any]:
+        scenario = self._scenario_to_api(row.scenario)
         return {
             "reportDate": row.report_date.date().isoformat(),
             "symbol": row.symbol,
@@ -458,6 +474,7 @@ class DailyPredictionReportService:
             if row.local_model_json
             else None,
             "localModelError": row.local_model_error,
+            "scenarioSwarm": scenario,
             "action": self._extract_metric(row, "action"),
             "dailyRating": self._extract_metric(row, "dailyRating"),
             "buyScore": self._extract_metric(row, "buyScore"),
@@ -487,6 +504,7 @@ class DailyPredictionReportService:
         """Flatten one row into spreadsheet-friendly columns."""
         item = self._to_api(row)
         local_model = item.get("localModelAnalysis") or {}
+        scenario = item.get("scenarioSwarm") or {}
         evidence = item.get("supportingEvidence") or []
         return {
             "report_date": item["reportDate"],
@@ -513,6 +531,12 @@ class DailyPredictionReportService:
             "local_model_confidence_adjustment": local_model.get(
                 "confidenceAdjustment"
             ),
+            "scenario_verdict": scenario.get("scenarioVerdict"),
+            "scenario_support_score": scenario.get("supportScore"),
+            "scenario_disagreement_score": scenario.get("disagreementScore"),
+            "scenario_fragility_score": scenario.get("fragilityScore"),
+            "scenario_summary": scenario.get("summary"),
+            "scenario_agent_count": scenario.get("agentCount"),
             "source_ids": "|".join(item.get("sourceIds") or []),
             "evidence_urls": "|".join(
                 evidence_item.get("url") or ""
@@ -522,6 +546,66 @@ class DailyPredictionReportService:
             "reasoning": " ".join(item.get("reasoning") or []),
             "evaluation_notes": item.get("evaluationNotes"),
         }
+
+    async def _upsert_scenario(
+        self,
+        session,
+        *,
+        snapshot_key: str,
+        report_date: datetime,
+        idea: Dict[str, Any],
+    ) -> None:
+        scenario_payload = idea.get("scenarioSwarm")
+        scenario_error = idea.get("scenarioSwarmError")
+        if scenario_payload is None and not scenario_error:
+            return
+
+        scenario = await session.scalar(
+            select(DailyPredictionScenario).where(
+                DailyPredictionScenario.snapshot_key == snapshot_key
+            )
+        )
+        if scenario is None:
+            scenario = DailyPredictionScenario(
+                snapshot_key=snapshot_key,
+                report_date=report_date,
+                symbol=idea["symbol"],
+                provider=None,
+                model=None,
+                prompt_version=None,
+                agent_count=0,
+                scenario_verdict="mixed",
+                support_score=Decimal("0.5000"),
+                disagreement_score=Decimal("0.5000"),
+                fragility_score=Decimal("0.5000"),
+                summary_text="Scenario review pending.",
+                agents_json="[]",
+            )
+            session.add(scenario)
+
+        if scenario_payload:
+            scenario.provider = scenario_payload.get("provider")
+            scenario.model = scenario_payload.get("model")
+            scenario.prompt_version = scenario_payload.get("promptVersion")
+            scenario.agent_count = int(scenario_payload.get("agentCount") or 0)
+            scenario.scenario_verdict = scenario_payload.get("scenarioVerdict") or "mixed"
+            scenario.support_score = self._as_decimal(
+                scenario_payload.get("supportScore")
+            ) or Decimal("0.5000")
+            scenario.disagreement_score = self._as_decimal(
+                scenario_payload.get("disagreementScore")
+            ) or Decimal("0.5000")
+            scenario.fragility_score = self._as_decimal(
+                scenario_payload.get("fragilityScore")
+            ) or Decimal("0.5000")
+            scenario.summary_text = (
+                scenario_payload.get("summary") or "Scenario review completed."
+            )
+            scenario.watch_next_session_json = json.dumps(
+                scenario_payload.get("watchNextSession") or []
+            )
+            scenario.agents_json = json.dumps(scenario_payload.get("agents") or [])
+        scenario.error = scenario_error
 
     @staticmethod
     def _snapshot_key(report_date: datetime, idea: Dict[str, Any]) -> str:
@@ -554,6 +638,27 @@ class DailyPredictionReportService:
     def _extract_metric(row: DailyPredictionSnapshot, key: str) -> Any:
         metrics = json.loads(row.metrics_json or "{}")
         return metrics.get(key)
+
+    @staticmethod
+    def _scenario_to_api(
+        scenario: Optional[DailyPredictionScenario],
+    ) -> Optional[Dict[str, Any]]:
+        if scenario is None:
+            return None
+        return {
+            "provider": scenario.provider,
+            "model": scenario.model,
+            "promptVersion": scenario.prompt_version,
+            "agentCount": scenario.agent_count,
+            "scenarioVerdict": scenario.scenario_verdict,
+            "supportScore": float(scenario.support_score),
+            "disagreementScore": float(scenario.disagreement_score),
+            "fragilityScore": float(scenario.fragility_score),
+            "summary": scenario.summary_text,
+            "watchNextSession": json.loads(scenario.watch_next_session_json or "[]"),
+            "agents": json.loads(scenario.agents_json or "[]"),
+            "error": scenario.error,
+        }
 
     @staticmethod
     def _score_to_rating(
@@ -596,6 +701,12 @@ class DailyPredictionReportService:
             "local_model_verdict",
             "local_model_summary",
             "local_model_confidence_adjustment",
+            "scenario_verdict",
+            "scenario_support_score",
+            "scenario_disagreement_score",
+            "scenario_fragility_score",
+            "scenario_summary",
+            "scenario_agent_count",
             "source_ids",
             "evidence_urls",
             "reasoning",

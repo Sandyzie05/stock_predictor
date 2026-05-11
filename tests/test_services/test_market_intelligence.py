@@ -73,6 +73,9 @@ class FakeTracker:
 
 
 class FakeLocalModelService:
+    provider = "ollama"
+    model = "qwen3:4b"
+
     def enabled(self):
         return True
 
@@ -82,6 +85,20 @@ class FakeLocalModelService:
             "model": "qwen3:4b",
             "verdict": "supports",
             "thesisSummary": f"{idea['symbol']} has evidence-backed support.",
+        }
+
+    async def request_structured_json(self, **kwargs):
+        agent_name = "macro"
+        user_prompt = kwargs.get("user_prompt") or ""
+        if "AGENT:" in user_prompt:
+            agent_name = user_prompt.split("AGENT:", 1)[1].splitlines()[0].strip()
+        stance = "supports" if agent_name != "risk" else "mixed"
+        return {
+            "stance": stance,
+            "confidence": 0.72 if stance == "supports" else 0.64,
+            "keyReason": f"{agent_name} sees current support for the idea.",
+            "whatChangesMyView": "A contradictory earnings or macro print.",
+            "nextSessionRisk": f"Watch {agent_name} follow-through.",
         }
 
 
@@ -126,6 +143,8 @@ async def test_build_today_report_links_news_to_stocks():
     nvda_idea = next(idea for idea in report["topBullish"] if idea["symbol"] == "NVDA")
     assert nvda_idea["supportingEvidence"]
     assert nvda_idea["localModelAnalysis"]["verdict"] == "supports"
+    assert nvda_idea["scenarioSwarm"]["scenarioVerdict"] in {"supports", "mixed"}
+    assert nvda_idea["scenarioSwarm"]["agentCount"] >= 1
     assert nvda_idea["action"] in {"buy", "watch"}
     assert nvda_idea["dailyRating"] in {"A", "B", "C"}
     assert "gpu accelerator" in nvda_idea["reasoning"][0].lower()

@@ -213,6 +213,7 @@ function renderRecommendationTable(ideas) {
 
     tbody.innerHTML = rankedIdeas.map((idea) => {
         const localModel = idea.localModelAnalysis || {};
+        const scenario = idea.scenarioSwarm || {};
         const evidenceCount = idea.nonDemoEvidenceCount ?? idea.metrics?.nonDemoEvidenceCount ?? 0;
         const confidenceText = idea.confidence != null ? `${Math.round(Number(idea.confidence) * 100)}%` : '--';
         const price = idea.currentPrice != null ? `$${Number(idea.currentPrice).toFixed(2)}` : '--';
@@ -243,6 +244,7 @@ function renderRecommendationTable(ideas) {
                 <td>
                     ${localModel.verdict ? `<span class="badge ${badgeTone(localModel.verdict)}">${escapeHtml(localModel.verdict.toUpperCase())}</span>` : '<span class="subtle">Not reviewed</span>'}
                     <div class="subtle">${escapeHtml(localModel.thesisSummary || idea.reasoning?.[0] || 'Awaiting structured local-model review.')}</div>
+                    ${scenario.scenarioVerdict ? `<div class="subtle">Scenario ${escapeHtml(String(scenario.scenarioVerdict).toUpperCase())} | support ${Number(scenario.supportScore || 0).toFixed(2)}</div>` : ''}
                 </td>
             </tr>
         `;
@@ -267,6 +269,7 @@ function renderIdeaMiniList(containerId, ideas, emptyMessage) {
             </div>
             <div class="microcopy">${escapeHtml(idea.reasoning?.[0] || 'No reasoning stored.')}</div>
             <div class="microcopy">${idea.buyScore != null ? `Buy score ${Number(idea.buyScore).toFixed(2)}` : 'Buy score unavailable'} | ${idea.confidence != null ? `${Math.round(Number(idea.confidence) * 100)}% confidence` : 'Confidence unavailable'}</div>
+            <div class="microcopy">${idea.scenarioSwarm?.scenarioVerdict ? `Scenario ${String(idea.scenarioSwarm.scenarioVerdict).toUpperCase()} | Fragility ${Number(idea.scenarioSwarm.fragilityScore || 0).toFixed(2)}` : 'Scenario review pending.'}</div>
         </div>
     `).join('');
 }
@@ -377,6 +380,7 @@ function renderDecisionMethod(method, freshness) {
         'Collect current stories and structured evidence from open sources.',
         'Score stocks with deterministic weights before adding model opinion.',
         'Use Ollama only to review the prepared dataset, not to invent facts.',
+        'Run a small role-based scenario swarm, then aggregate those opinions deterministically.',
         freshness?.datasetPolicy || 'Refresh data continuously and reset to a new report date at midnight.',
     ];
     document.getElementById('decisionWorkflowList').innerHTML = steps.map((step) => `<li>${escapeHtml(step)}</li>`).join('');
@@ -452,7 +456,8 @@ function setAnalysisPlaceholders() {
     const ids = [
         'currentPrice', 'recommendation', 'confidence', 'targetPrice',
         'analysisMarketCap', 'analysisSector', 'analysisRisk', 'analysisPotentialReturn',
-        'analysisOverallScore', 'analysisResearch21d',
+        'analysisOverallScore', 'analysisResearch21d', 'analysisScenarioVerdict',
+        'analysisScenarioFragility',
     ];
     ids.forEach((id) => setElementText(id, '--'));
     setElementText('analysisCompanyLine', 'Waiting for drilldown data.');
@@ -462,6 +467,9 @@ function setAnalysisPlaceholders() {
     document.getElementById('analysisTechnical').textContent = 'Waiting for technical analysis.';
     document.getElementById('analysisResearchSignals').innerHTML = '<div class="empty-state">Waiting for research prediction.</div>';
     document.getElementById('analysisNews').innerHTML = '<div class="empty-state">Waiting for stock news.</div>';
+    document.getElementById('analysisScenarioAgents').innerHTML = '<div class="empty-state">No scenario review loaded yet.</div>';
+    document.getElementById('analysisScenarioSummary').textContent = 'Search a symbol to view scenario review.';
+    document.getElementById('analysisScenarioWatch').textContent = 'Waiting for scenario watch points.';
 }
 
 function renderStockDrilldown(symbol, payload) {
@@ -471,6 +479,8 @@ function renderStockDrilldown(symbol, payload) {
     const analysis = payload.analysis || {};
     const research = payload.research || {};
     const news = payload.news || [];
+    const currentIdea = findCurrentIdea(symbol);
+    const scenario = currentIdea?.scenarioSwarm || null;
 
     setElementText('analysisCompanyLine', `${company.name || recommendation.company_name || symbol}${company.sector ? ` | ${company.sector}` : ''}`);
     setElementText('analysisUpdatedAt', quote.timestamp ? formatShortDateTime(quote.timestamp) : '--');
@@ -490,6 +500,11 @@ function renderStockDrilldown(symbol, payload) {
         'analysisResearch21d',
         research21d ? `${String(research21d.recommendation || '--').replace(/_/g, ' ')} | ${Math.round(Number(research21d.confidence || 0) * 100)}% conf` : '--'
     );
+    setElementText('analysisScenarioVerdict', scenario?.scenarioVerdict ? String(scenario.scenarioVerdict).toUpperCase() : '--');
+    setElementText(
+        'analysisScenarioFragility',
+        scenario?.fragilityScore != null ? Number(scenario.fragilityScore).toFixed(2) : '--'
+    );
 
     const reasoning = Array.isArray(recommendation.reasoning) ? recommendation.reasoning.join(' ') : recommendation.reasoning;
     setAnalysisMessage(reasoning || company.description || 'Drilldown loaded.', true);
@@ -502,6 +517,7 @@ function renderStockDrilldown(symbol, payload) {
     document.getElementById('analysisTechnical').textContent = buildTechnicalSummary(analysis);
     renderResearchSignals(research);
     renderStockNews(news);
+    renderScenarioReview(currentIdea);
 }
 
 function renderResearchSignals(research) {
@@ -545,6 +561,42 @@ function renderStockNews(news) {
     `).join('');
 }
 
+function renderScenarioReview(idea) {
+    const scenario = idea?.scenarioSwarm || null;
+    const agentsContainer = document.getElementById('analysisScenarioAgents');
+    if (!scenario) {
+        document.getElementById('analysisScenarioSummary').textContent = 'No stored scenario review for this symbol in the current report.';
+        document.getElementById('analysisScenarioWatch').textContent = 'No scenario watch points stored yet.';
+        agentsContainer.innerHTML = '<div class="empty-state">No scenario review loaded yet.</div>';
+        return;
+    }
+
+    document.getElementById('analysisScenarioSummary').textContent = scenario.summary || 'Scenario review loaded.';
+    document.getElementById('analysisScenarioWatch').textContent = (scenario.watchNextSession || []).length
+        ? `Watch next: ${(scenario.watchNextSession || []).join(' | ')}`
+        : 'No special next-session watch points were stored.';
+
+    const agents = scenario.agents || [];
+    if (!agents.length) {
+        agentsContainer.innerHTML = '<div class="empty-state">No agent opinions were stored.</div>';
+        return;
+    }
+
+    agentsContainer.innerHTML = agents.map((agent) => `
+        <div class="story-item">
+            <div class="story-head">
+                <div>
+                    <strong>${escapeHtml(agent.agentName || 'agent')}</strong><br>
+                    <span class="subtle">${escapeHtml(agent.keyReason || 'No reason stored.')}</span>
+                </div>
+                <span class="badge ${badgeTone(agent.stance)}">${escapeHtml(String(agent.stance || 'mixed').toUpperCase())}</span>
+            </div>
+            <div class="microcopy">Confidence ${agent.confidence != null ? `${Math.round(Number(agent.confidence) * 100)}%` : '--'} | Invalidate: ${escapeHtml(agent.whatChangesMyView || '--')}</div>
+            <div class="microcopy">${escapeHtml(agent.nextSessionRisk || 'No next-session risk stored.')}</div>
+        </div>
+    `).join('');
+}
+
 function buildTechnicalSummary(analysis) {
     if (!analysis || Object.keys(analysis).length === 0) {
         return 'No technical snapshot available.';
@@ -569,6 +621,14 @@ function buildTechnicalSummary(analysis) {
 
 function findResearchHorizon(research, wanted) {
     return (research.horizons || []).find((item) => item.horizon === wanted) || null;
+}
+
+function findCurrentIdea(symbol) {
+    const ideas = [
+        ...(appState.market?.topBullish || []),
+        ...(appState.market?.topBearish || []),
+    ];
+    return ideas.find((idea) => String(idea.symbol || '').toUpperCase() === String(symbol || '').toUpperCase()) || null;
 }
 
 function setAnalysisMessage(message, neutral = true) {

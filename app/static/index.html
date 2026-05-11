@@ -1023,6 +1023,8 @@
                                     <div class="metric-tile"><div class="label">Potential return</div><div class="value mono" id="analysisPotentialReturn">--</div></div>
                                     <div class="metric-tile"><div class="label">Overall score</div><div class="value mono" id="analysisOverallScore">--</div></div>
                                     <div class="metric-tile"><div class="label">Research 21d view</div><div class="value" id="analysisResearch21d">--</div></div>
+                                    <div class="metric-tile"><div class="label">Scenario verdict</div><div class="value" id="analysisScenarioVerdict">--</div></div>
+                                    <div class="metric-tile"><div class="label">Scenario fragility</div><div class="value mono" id="analysisScenarioFragility">--</div></div>
                                 </div>
 
                                 <div class="analysis-summary" id="analysisSummary">Search a symbol to view the latest drilldown.</div>
@@ -1066,6 +1068,21 @@
                                     <div class="panel neutral">
                                         <div class="panel-header">
                                             <div>
+                                                <h3>Scenario review</h3>
+                                                <div class="panel-subcopy">Role-based local-agent pressure test of the current idea.</div>
+                                            </div>
+                                        </div>
+                                        <div class="microcopy" id="analysisScenarioSummary">Search a symbol to view scenario review.</div>
+                                        <div id="analysisScenarioAgents" class="stack" style="margin-top: 14px;">
+                                            <div class="empty-state">No scenario review loaded yet.</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="grid-two" style="margin-top: 14px;">
+                                    <div class="panel neutral">
+                                        <div class="panel-header">
+                                            <div>
                                                 <h3>Recent stock news</h3>
                                                 <div class="panel-subcopy">Latest company-specific headlines.</div>
                                             </div>
@@ -1073,6 +1090,16 @@
                                         <div id="analysisNews" class="stack">
                                             <div class="empty-state">Waiting for stock news.</div>
                                         </div>
+                                    </div>
+
+                                    <div class="panel neutral">
+                                        <div class="panel-header">
+                                            <div>
+                                                <h3>Next-session watch</h3>
+                                                <div class="panel-subcopy">What the scenario swarm wants us to monitor next.</div>
+                                            </div>
+                                        </div>
+                                        <div class="microcopy" id="analysisScenarioWatch">Waiting for scenario watch points.</div>
                                     </div>
                                 </div>
                             </div>

@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     LOCAL_LLM_EMBEDDING_MODEL: Optional[str] = None
     LOCAL_LLM_TIMEOUT_SECONDS: int = 60
     LOCAL_LLM_MAX_ANALYSES_PER_REPORT: int = 4
+    ENABLE_SCENARIO_SWARM: bool = True
+    SCENARIO_SWARM_MAX_IDEAS_PER_REPORT: int = 3
+    SCENARIO_SWARM_AGENT_COUNT: int = 4
     REPORT_TIMEZONE: str = "America/Denver"
 
     # Cache Settings

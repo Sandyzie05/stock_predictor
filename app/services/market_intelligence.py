@@ -21,6 +21,7 @@ from app.services.report_clock import next_reset, report_day, report_now
 from app.services.research_models import EvidenceCard
 from app.services.research_prediction import ResearchPredictionService
 from app.services.runtime_cache import TTLCache
+from app.services.scenario_swarm import ScenarioSwarmService
 from app.services.source_registry import SourceRegistry
 from app.services.theme_models import AIInfrastructureThemeModel
 
@@ -127,6 +128,7 @@ class MarketIntelligenceService:
         self.tracker: Optional[PredictionTrackerService] = None
         self.daily_report_service: Optional[DailyPredictionReportService] = None
         self.local_model_service: Optional[LocalModelAnalysisService] = None
+        self.scenario_swarm_service: Optional[ScenarioSwarmService] = None
 
     async def __aenter__(self):
         self.data_fetcher = RealDataFetcherService()
@@ -136,6 +138,7 @@ class MarketIntelligenceService:
         await self.research_service.__aenter__()
         if self.local_model_service.enabled():
             await self.local_model_service.__aenter__()
+            self.scenario_swarm_service = ScenarioSwarmService(self.local_model_service)
         self.tracker = PredictionTrackerService(self.data_fetcher)
         self.daily_report_service = DailyPredictionReportService(self.data_fetcher)
         return self
@@ -183,6 +186,7 @@ class MarketIntelligenceService:
             bullish_ranked, bearish_ranked, limit=limit
         )
         await self._attach_local_model_analysis([*bullish, *bearish])
+        await self._attach_scenario_swarm([*bullish, *bearish])
         self._finalize_recommendations([*bullish, *bearish])
 
         await self.tracker.evaluate_due_predictions(as_of)
@@ -209,7 +213,8 @@ class MarketIntelligenceService:
                 "mode": "deterministic-scoring-plus-structured-llm-review",
                 "description": (
                     "Current-event stories and market data are scored first; the local model only evaluates "
-                    "the prepared dataset and nudges the final buy/watch/avoid action."
+                    "the prepared dataset. A small local scenario swarm then pressure-tests the best ideas "
+                    "before the final buy/watch/avoid action."
                 ),
             },
             "dataFreshness": {
@@ -678,10 +683,46 @@ class MarketIntelligenceService:
             except Exception as exc:
                 idea["localModelError"] = str(exc)
 
+    async def _attach_scenario_swarm(self, ideas: List[Dict[str, Any]]) -> None:
+        if (
+            self.scenario_swarm_service is None
+            and self.local_model_service
+            and self.local_model_service.enabled()
+        ):
+            self.scenario_swarm_service = ScenarioSwarmService(self.local_model_service)
+        if (
+            not self.scenario_swarm_service
+            or not self.scenario_swarm_service.enabled()
+            or not ideas
+        ):
+            return
+
+        budget = max(0, settings.SCENARIO_SWARM_MAX_IDEAS_PER_REPORT)
+        if budget <= 0:
+            return
+
+        ranked = sorted(
+            ideas,
+            key=lambda item: (
+                item.get("action") != "buy",
+                -(float(item.get("buyScore") or 0.0)),
+                -(float(item.get("score") or 0.0)),
+            ),
+        )[:budget]
+
+        for idea in ranked:
+            try:
+                idea["scenarioSwarm"] = await self.scenario_swarm_service.analyze_idea(
+                    idea
+                )
+            except Exception as exc:
+                idea["scenarioSwarmError"] = str(exc)
+
     def _finalize_recommendations(self, ideas: List[Dict[str, Any]]) -> None:
         for idea in ideas:
             metrics = idea.get("metrics") or {}
             model_analysis = idea.get("localModelAnalysis") or {}
+            scenario_analysis = idea.get("scenarioSwarm") or {}
             local_verdict = model_analysis.get("verdict")
             base_score = float(idea.get("score") or 0.0) / 100.0
             confidence = float(idea.get("confidence") or 0.0)
@@ -696,6 +737,21 @@ class MarketIntelligenceService:
             elif local_verdict == "contradicts":
                 llm_adjustment = -0.12
 
+            scenario_adjustment = 0.0
+            scenario_verdict = scenario_analysis.get("scenarioVerdict")
+            scenario_support = float(scenario_analysis.get("supportScore") or 0.5)
+            scenario_disagreement = float(
+                scenario_analysis.get("disagreementScore") or 0.5
+            )
+            scenario_fragility = float(scenario_analysis.get("fragilityScore") or 0.5)
+            if scenario_verdict == "supports":
+                scenario_adjustment += 0.04 + max(0.0, scenario_support - 0.66) * 0.10
+            elif scenario_verdict == "mixed":
+                scenario_adjustment -= 0.02 + scenario_disagreement * 0.02
+            elif scenario_verdict == "contradicts":
+                scenario_adjustment -= 0.08 + (1 - scenario_support) * 0.08
+            scenario_adjustment -= max(0.0, scenario_fragility - 0.55) * 0.06
+
             if idea.get("direction") == "up":
                 buy_score = (
                     0.38 * base_score
@@ -703,6 +759,7 @@ class MarketIntelligenceService:
                     + 0.18 * research_prob
                     + 0.12 * evidence_strength
                     + llm_adjustment
+                    + scenario_adjustment
                 )
             else:
                 buy_score = (
@@ -729,6 +786,11 @@ class MarketIntelligenceService:
             metrics["buyScore"] = round(buy_score, 4)
             metrics["action"] = action
             metrics["dailyRating"] = rating
+            metrics["scenarioVerdict"] = scenario_verdict
+            metrics["scenarioSupportScore"] = round(scenario_support, 4)
+            metrics["scenarioDisagreementScore"] = round(scenario_disagreement, 4)
+            metrics["scenarioFragilityScore"] = round(scenario_fragility, 4)
+            metrics["scenarioAgentCount"] = int(scenario_analysis.get("agentCount") or 0)
             idea["metrics"] = metrics
 
     @staticmethod

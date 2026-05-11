@@ -44,13 +44,41 @@ class LocalModelAnalysisService:
         """Return a concise structured read of the available facts for one idea."""
         if not self.enabled():
             raise RuntimeError("Local model analysis is not enabled.")
-        if not self.session:
-            raise RuntimeError("LocalModelAnalysisService must be used as async context manager")
-
-        if self.provider.lower() == "ollama":
-            parsed = await self._analyze_with_ollama_native(idea)
-        else:
-            parsed = await self._analyze_with_openai_compat(idea)
+        parsed = await self.request_structured_json(
+            system_prompt=(
+                "You are a careful stock research assistant. Use only the supplied facts. "
+                "Fill the JSON schema accurately and concisely."
+            ),
+            user_prompt=self._build_prompt(idea),
+            schema={
+                "type": "object",
+                "properties": {
+                    "thesisSummary": {"type": "string"},
+                    "verdict": {
+                        "type": "string",
+                        "enum": ["supports", "mixed", "contradicts"],
+                    },
+                    "keySupport": {"type": "array", "items": {"type": "string"}},
+                    "keyRisks": {"type": "array", "items": {"type": "string"}},
+                    "confidenceAdjustment": {
+                        "type": "string",
+                        "enum": ["increase", "neutral", "decrease"],
+                    },
+                    "watchNextSession": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": [
+                    "thesisSummary",
+                    "verdict",
+                    "keySupport",
+                    "keyRisks",
+                    "confidenceAdjustment",
+                    "watchNextSession",
+                ],
+            },
+            prompt_version=self.prompt_version,
+            max_tokens=220,
+            temperature=0.0,
+        )
 
         return {
             "provider": self.provider,
@@ -65,25 +93,63 @@ class LocalModelAnalysisService:
             "watchNextSession": parsed.get("watchNextSession") or [],
         }
 
-    async def _analyze_with_openai_compat(self, idea: Dict[str, Any]) -> Dict[str, Any]:
+    async def request_structured_json(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        schema: Dict[str, Any],
+        *,
+        prompt_version: str,
+        max_tokens: int = 220,
+        temperature: float = 0.0,
+    ) -> Dict[str, Any]:
+        if not self.enabled():
+            raise RuntimeError("Local model analysis is not enabled.")
+        if not self.session:
+            raise RuntimeError("LocalModelAnalysisService must be used as async context manager")
+
+        if self.provider.lower() == "ollama":
+            return await self._request_with_ollama_native(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                schema=schema,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        return await self._request_with_openai_compat(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            prompt_version=prompt_version,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    async def _request_with_openai_compat(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        prompt_version: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> Dict[str, Any]:
         request_payload = {
             "model": self.model,
-            "temperature": 0.1,
-            "max_tokens": 220,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
             "think": False,
             "stream": False,
             "messages": [
                 {
                     "role": "system",
                     "content": (
-                        "You are a careful stock research assistant. Use only the supplied facts. "
-                        "Return valid JSON only with keys thesisSummary, verdict, keySupport, "
-                        "keyRisks, confidenceAdjustment, watchNextSession. Keep each field concise."
+                        f"{system_prompt} "
+                        f"Return valid JSON only. Prompt version: {prompt_version}."
                     ),
                 },
                 {
                     "role": "user",
-                    "content": self._build_prompt(idea),
+                    "content": user_prompt,
                 },
             ],
         }
@@ -99,52 +165,32 @@ class LocalModelAnalysisService:
         content = message.get("content") or ""
         return self._parse_json(content)
 
-    async def _analyze_with_ollama_native(self, idea: Dict[str, Any]) -> Dict[str, Any]:
-        schema = {
-            "type": "object",
-            "properties": {
-                "thesisSummary": {"type": "string"},
-                "verdict": {
-                    "type": "string",
-                    "enum": ["supports", "mixed", "contradicts"],
-                },
-                "keySupport": {"type": "array", "items": {"type": "string"}},
-                "keyRisks": {"type": "array", "items": {"type": "string"}},
-                "confidenceAdjustment": {
-                    "type": "string",
-                    "enum": ["increase", "neutral", "decrease"],
-                },
-                "watchNextSession": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": [
-                "thesisSummary",
-                "verdict",
-                "keySupport",
-                "keyRisks",
-                "confidenceAdjustment",
-                "watchNextSession",
-            ],
-        }
+    async def _request_with_ollama_native(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        schema: Dict[str, Any],
+        max_tokens: int,
+        temperature: float,
+    ) -> Dict[str, Any]:
         request_payload = {
             "model": self.model,
             "stream": False,
             "think": False,
             "format": schema,
             "options": {
-                "temperature": 0,
-                "num_predict": 220,
+                "temperature": temperature,
+                "num_predict": max_tokens,
             },
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are a careful stock research assistant. Use only the supplied facts. "
-                        "Fill the JSON schema accurately and concisely."
-                    ),
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",
-                    "content": self._build_prompt(idea),
+                    "content": user_prompt,
                 },
             ],
         }

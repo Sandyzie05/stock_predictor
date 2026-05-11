@@ -118,6 +118,36 @@ async def test_daily_prediction_report_tracks_outcomes_and_evidence(
                     "verdict": "supports",
                     "thesisSummary": "The supplied evidence supports continued AI demand.",
                 },
+                "scenarioSwarm": {
+                    "provider": "ollama",
+                    "model": "qwen3:4b",
+                    "promptVersion": "scenario-swarm-v1",
+                    "agentCount": 2,
+                    "scenarioVerdict": "supports",
+                    "supportScore": 0.78,
+                    "disagreementScore": 0.12,
+                    "fragilityScore": 0.26,
+                    "summary": "Scenario swarm supports NVDA.",
+                    "watchNextSession": ["Watch datacenter capex headlines."],
+                    "agents": [
+                        {
+                            "agentName": "macro",
+                            "stance": "supports",
+                            "confidence": 0.75,
+                            "keyReason": "Macro spending still supports the setup.",
+                            "whatChangesMyView": "A materially weaker spending signal.",
+                            "nextSessionRisk": "Watch yields and risk appetite.",
+                        },
+                        {
+                            "agentName": "risk",
+                            "stance": "supports",
+                            "confidence": 0.69,
+                            "keyReason": "No direct contradiction in the packet.",
+                            "whatChangesMyView": "A negative datacenter guide.",
+                            "nextSessionRisk": "Watch for a sharp reversal.",
+                        },
+                    ],
+                },
             },
             {
                 "symbol": "NOW",
@@ -166,6 +196,16 @@ async def test_daily_prediction_report_tracks_outcomes_and_evidence(
         item for item in report["recentEvaluations"] if item["symbol"] == "NVDA"
     )
     assert analyzed["localModelAnalysis"]["verdict"] == "supports"
+    assert analyzed["scenarioSwarm"]["scenarioVerdict"] == "supports"
     assert any("evidence links" in line.lower() for line in report["narrative"])
+    exported = service.export_row_to_flat_dict(
+        next(
+            row
+            for row in await service.export_rows(days=30, as_of=evaluation_time)
+            if row.symbol == "NVDA"
+        )
+    )
+    assert exported["scenario_verdict"] == "supports"
+    assert exported["scenario_agent_count"] == 2
 
     await engine.dispose()

@@ -43,6 +43,11 @@ class FakeMarketIntelligenceService:
                     "supportingEvidence": [
                         {"url": "https://example.com/nvda-ai", "title": "AI demand story"}
                     ],
+                    "scenarioSwarm": {
+                        "scenarioVerdict": "supports",
+                        "supportScore": 0.74,
+                        "agentCount": 4,
+                    },
                 }
             ],
             "recentEvaluations": [],
@@ -56,10 +61,15 @@ class FakeDailyPredictionReportService:
         return ["row"]
 
     def export_columns(self):
-        return ["report_date", "symbol", "action"]
+        return ["report_date", "symbol", "action", "scenario_verdict"]
 
     def export_row_to_flat_dict(self, row):
-        return {"report_date": "2026-05-10", "symbol": "NVDA", "action": "buy"}
+        return {
+            "report_date": "2026-05-10",
+            "symbol": "NVDA",
+            "action": "buy",
+            "scenario_verdict": "supports",
+        }
 
 
 async def override_market_service():
@@ -126,6 +136,7 @@ def test_market_daily_prediction_report_endpoint():
         "https://example.com/"
     )
     assert payload["todayPredictions"][0]["action"] == "buy"
+    assert payload["todayPredictions"][0]["scenarioSwarm"]["scenarioVerdict"] == "supports"
 
 
 def test_market_daily_prediction_report_csv_endpoint():
@@ -137,5 +148,5 @@ def test_market_daily_prediction_report_csv_endpoint():
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert "report_date,symbol,action" in response.text
-    assert "2026-05-10,NVDA,buy" in response.text
+    assert "report_date,symbol,action,scenario_verdict" in response.text
+    assert "2026-05-10,NVDA,buy,supports" in response.text
